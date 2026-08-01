@@ -3,12 +3,21 @@
 #include <GLFW/glfw3.h>
 
 // imgui
-#include "imgui/imgui.h"
-#include "imgui_impl_glfw.h"
-#include "imgui_impl_opengl3.h"
+#include <imgui.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_opengl3.h>
+
+// glm
+#include <glm/glm.hpp>
+using namespace glm;
 
 // Other imports
 #include <iostream>
+#include <shader.h>
+#include <texture.h>
+#include <mesh.h>
+#include <renderer.h>
+#include <sprite.h>
 
 static void glfw_error_callback(int error, const char* description)
 {
@@ -86,6 +95,17 @@ int main(int, char**)
     bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
+    // Initialize internal game engine values
+    const_cast<Shader *>(Shader::DEFAULT_SHADER)->fromFile(
+        RESOURCE_DIR "/default.vert.glsl",
+        RESOURCE_DIR "/default.frag.glsl");
+    
+    Mesh::initPrimitives();
+    Texture texture("test.png");
+
+    std::vector<Sprite> sprites;
+    sprites.push_back(Sprite(vec2(0, 0), vec2(1, 1)));
+
     // Start the game loop
     while (!glfwWindowShouldClose(window))
     {
@@ -102,9 +122,17 @@ int main(int, char**)
 
         // TODO: Add and test this later
         // ImGui::GetIO().WantCaptureMouse (and WantCaptureKeyboard)
+
         // Render game content
-        glColor3d(1, 0, 0);
-        glRectd(0, 0, 0.5, 0.5);
+        for (auto& sprite : sprites) {
+            glm::mat4 model = glm::mat4(1.0f);
+            model = glm::translate(model, vec3(sprite.position.x, sprite.position.y, 0));
+            model = glm::scale(model, vec3(sprite.scale.x, sprite.scale.y, 1));
+            Shader::DEFAULT_SHADER->use();
+            Shader::DEFAULT_SHADER->setMat4("uModel", model);
+            texture.bind(0);
+            Mesh::QUAD->draw();
+        }
         
         GLenum err;
         while ((err = glGetError()) != GL_NO_ERROR) {

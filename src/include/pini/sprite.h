@@ -1,6 +1,6 @@
 #include <glm/glm.hpp>
-#include <texture.h>
-#include <shader.h>
+#include "texture.h"
+#include "shader.h"
 using namespace glm;
 
 class Sprite

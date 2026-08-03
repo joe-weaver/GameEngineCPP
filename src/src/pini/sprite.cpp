@@ -1,6 +1,6 @@
-#include <sprite.h>
+#include "sprite.h"
 #include <glm/gtc/matrix_transform.hpp>
-#include <mesh.h>
+#include "mesh.h"
 
 void Sprite::draw()
 {

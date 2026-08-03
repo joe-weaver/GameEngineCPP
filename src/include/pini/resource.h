@@ -13,6 +13,14 @@ protected:
         this->filepath = std::string(RESOURCE_DIR) + std::string("/") + filepath;
     }
 
+    ~Resource()
+    {
+        if(loaded)
+        {
+            unload();
+        }
+    }
+
     void finishLoad(bool success)
     {
         if(success)
@@ -27,6 +35,12 @@ protected:
         }
     }
 
+    void finishUnload()
+    {
+        loaded = false;
+    }
+
 public:
-    virtual void load() = 0;
+    virtual void load() {};
+    virtual void unload() {};
 };

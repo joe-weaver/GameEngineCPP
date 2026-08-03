@@ -15,12 +15,13 @@ using namespace glm;
 // Other imports
 #include <iostream>
 #include <functional>
-#include <shader.h>
-#include <texture.h>
-#include <mesh.h>
-#include <renderer.h>
-#include <sprite.h>
-#include <camera.h>
+#include "shader.h"
+#include "texture.h"
+#include "mesh.h"
+#include "renderer.h"
+#include "sprite.h"
+#include "camera.h"
+#include "random.h"
 
 // TODO: Implement
 // #define DEBUG_DRAW
@@ -134,7 +135,10 @@ int main(int, char**)
     Mesh::initPrimitives();
 
     // Load our default texture
-    Texture texture("test.png");
+    Bitmap *bmp = new Bitmap("test.png");
+    UpdatingTexture texture(bmp);
+    Random r;
+
     std::vector<Sprite> sprites;
     for(int i = 0; i < 10; i++)
     {
@@ -198,6 +202,14 @@ int main(int, char**)
         Shader::DEFAULT_SHADER->setMat4("uView", camera.getView());
         Shader::DEFAULT_SHADER->setMat4("uProjection", camera.getProjection());
         
+        // Corrupt random pixels in our image
+        int x = r.range(0, bmp->getWidth());
+        int y = r.range(0, bmp->getHeight());
+        ColorRGBA color = r.colorRGBA();
+
+        bmp->setPixel(x, y, color);
+        texture.updateFromBitmap();
+
         // Render game content
         for (auto& sprite : sprites) {
             sprite.draw();

@@ -2,19 +2,29 @@
 #include <string>
 #include <glad/glad.h>
 
-#include <resource.h>
+#include "bitmap.h"
 
-class Texture : public Resource
+class Texture
 {
-private:
+protected:
     GLuint textureID;
+    GLenum imageFormat;
 
 public:
-    Texture(const char * path, bool deferLoading = false);
-
-    virtual void load() override;
+    Texture(const Bitmap *bmp);
 
     void bind(int index) const;
 
     GLuint getTextureID() const;
+};
+
+class UpdatingTexture : public Texture
+{
+protected:
+    const Bitmap *bmp = nullptr;
+
+public:
+    UpdatingTexture(const Bitmap *bmp) : Texture(bmp), bmp(bmp) {}
+
+    void updateFromBitmap();
 };

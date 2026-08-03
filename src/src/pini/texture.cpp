@@ -19,7 +19,7 @@ void Texture::load()
 
     // Load the image
     int width, height, numChannels;
-    stbi_set_flip_vertically_on_load(true);
+    // stbi_set_flip_vertically_on_load(true);
     unsigned char *data = stbi_load(this->filepath.c_str(), &width, &height, &numChannels, 0);
 
     // Associate it with a texture

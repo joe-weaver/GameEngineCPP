@@ -9,20 +9,44 @@
 
 // glm
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 using namespace glm;
 
 // Other imports
 #include <iostream>
+#include <functional>
 #include <shader.h>
 #include <texture.h>
 #include <mesh.h>
 #include <renderer.h>
 #include <sprite.h>
+#include <camera.h>
+
+// TODO: Implement
+// #define DEBUG_DRAW
 
 static void glfw_error_callback(int error, const char* description)
 {
     fprintf(stderr, "GLFW Error %d: %s\n", error, description);
 }
+
+Camera *globalCamera = nullptr;
+struct mouse_state_t
+{
+    bool initialized = false;
+    vec2 lastPos;
+    vec2 currPos;
+    vec2 delta;
+    double leftClickStart = 0.0;
+    double rightClickStart = 0.0;
+    double middleClickStart = 0.0;
+} mouseState;
+
+void scrollCallback(GLFWwindow * window, double xoffset, double yoffset);
+void mouseButtonCallback(GLFWwindow * window, int button, int action, int mods);
+void cursorPosCallback(GLFWwindow * window, double xpos, double ypos);
+
+std::function<void(vec2)> onLeftClick;
 
 int main(int, char**)
 {
@@ -51,6 +75,7 @@ int main(int, char**)
 
 
     float main_scale = ImGui_ImplGlfw_GetContentScaleForMonitor(glfwGetPrimaryMonitor());
+    vec2 windowSize = vec2(1280 * main_scale, 800 * main_scale);
     window = glfwCreateWindow(1280 * main_scale, 800 * main_scale, "Hello World", NULL, NULL);
     if (!window)
     {
@@ -95,20 +120,65 @@ int main(int, char**)
     bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
+    // Game engine things
+    // Setup callbacks
+    glfwSetScrollCallback(window, scrollCallback);
+    glfwSetCursorPosCallback(window, cursorPosCallback);    
+    glfwSetMouseButtonCallback(window, mouseButtonCallback);
+
     // Initialize internal game engine values
     const_cast<Shader *>(Shader::DEFAULT_SHADER)->fromFile(
         RESOURCE_DIR "/default.vert.glsl",
         RESOURCE_DIR "/default.frag.glsl");
     
     Mesh::initPrimitives();
-    Texture texture("test.png");
 
+    // Load our default texture
+    Texture texture("test.png");
     std::vector<Sprite> sprites;
-    sprites.push_back(Sprite(vec2(0, 0), vec2(1, 1)));
+    for(int i = 0; i < 10; i++)
+    {
+        sprites.push_back(Sprite(windowSize * (i / 10.f), vec2(60, 60), &texture, Shader::DEFAULT_SHADER));
+    }
+
+    // Create a camera
+    Camera camera(windowSize/2.f, windowSize);
+    globalCamera = &camera;
+
+    onLeftClick = [&sprites](vec2 position)
+    {
+        std::cout << "checking click @(" << position.x << "," << position.y << ")" << std::endl;
+        // Find the sprite we interact with
+        for(auto& spr : sprites)
+        {
+            if(spr.containsPoint(position))
+            {
+                std::cout << "one contains!" << std::endl;
+                spr.disabled = true;
+                break;
+            }
+        }
+    };
+
+    double deltaT = 0.0;
+    double currentFrame = 0.0;
+    double lastFrame = 0.0;
+    bool firstFrame = true;
 
     // Start the game loop
     while (!glfwWindowShouldClose(window))
     {
+        // Update deltaT
+        currentFrame = glfwGetTime();
+        deltaT = currentFrame - lastFrame;
+        lastFrame = currentFrame;
+        
+        if(firstFrame)
+        {
+            firstFrame = false;
+            continue;
+        }
+
         glfwPollEvents();
 
         if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
@@ -120,19 +190,25 @@ int main(int, char**)
         glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        // TODO: Add and test this later
-        // ImGui::GetIO().WantCaptureMouse (and WantCaptureKeyboard)
+        // For now, all objects use the default shader
+        // TODO: Add support for switching shaders
+        Shader::DEFAULT_SHADER->use();
 
+        // These don't change, so set them out here
+        Shader::DEFAULT_SHADER->setMat4("uView", camera.getView());
+        Shader::DEFAULT_SHADER->setMat4("uProjection", camera.getProjection());
+        
         // Render game content
         for (auto& sprite : sprites) {
-            glm::mat4 model = glm::mat4(1.0f);
-            model = glm::translate(model, vec3(sprite.position.x, sprite.position.y, 0));
-            model = glm::scale(model, vec3(sprite.scale.x, sprite.scale.y, 1));
-            Shader::DEFAULT_SHADER->use();
-            Shader::DEFAULT_SHADER->setMat4("uModel", model);
-            texture.bind(0);
-            Mesh::QUAD->draw();
+            sprite.draw();
         }
+
+#ifdef DEBUG_DRAW
+        // Debugging render pass
+        for (auto& sprite : sprites) {
+            sprite.draw_DEBUG();
+        }
+#endif
         
         GLenum err;
         while ((err = glGetError()) != GL_NO_ERROR) {
@@ -199,4 +275,85 @@ int main(int, char**)
 
     glfwTerminate();
     return 0;
+}
+
+// Callback code
+// This overwites the default imgui hook into scrolls, so add that in too
+void scrollCallback(GLFWwindow * window, double xoffset, double yoffset)
+{
+    // Defer to imgui first
+    ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
+
+    // imgui is treated like an overlay, so if it didn't absorb the scroll, use it ourselves
+    if(!ImGui::GetIO().WantCaptureMouse)
+    {
+        if(globalCamera != nullptr)
+        {
+            if(yoffset > 0)
+            {
+                globalCamera->zoom(1.2, mouseState.currPos);
+            }
+            else if(yoffset < 0)
+            {
+                globalCamera->zoom(1 / 1.2, mouseState.currPos);
+            }
+        }
+    }
+}
+
+void mouseButtonCallback(GLFWwindow * window, int button, int action, int mods)
+{
+    // Defer to imgui first
+    ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
+
+    double currentFrame = glfwGetTime();
+
+    // imgui is treated like an overlay, so if it didn't absorb the scroll, use it ourselves
+    if(!ImGui::GetIO().WantCaptureMouse)
+    {
+        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
+            mouseState.leftClickStart = currentFrame;
+        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE)
+        {
+            onLeftClick(globalCamera->screenToWorld(mouseState.currPos));
+            mouseState.leftClickStart = 0.0;
+        }
+        if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS)
+            mouseState.rightClickStart = currentFrame;
+        if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_RELEASE)
+            mouseState.rightClickStart = 0.0;
+        if (button == GLFW_MOUSE_BUTTON_MIDDLE && action == GLFW_PRESS)
+            mouseState.middleClickStart = currentFrame;
+        if (button == GLFW_MOUSE_BUTTON_MIDDLE && action == GLFW_RELEASE)
+            mouseState.middleClickStart = 0.0;
+    }
+}
+
+void cursorPosCallback(GLFWwindow * window, double xpos, double ypos)
+{
+    // Defer to imgui first
+    ImGui_ImplGlfw_CursorPosCallback(window, xpos, ypos);
+
+    // imgui is treated like an overlay, so if it didn't absorb the scroll, use it ourselves
+    if(!ImGui::GetIO().WantCaptureMouse)
+    {
+        if(!mouseState.initialized)
+        {
+            // Initialize mouse state
+            mouseState.currPos = vec2(xpos, ypos);
+            mouseState.initialized = true;
+        }
+        else
+        {
+            mouseState.lastPos = mouseState.currPos;
+            mouseState.currPos = vec2(xpos, ypos);
+            mouseState.delta = mouseState.currPos - mouseState.lastPos;
+
+            if(mouseState.middleClickStart > 0)
+            {
+                // Middle mouse dragging - move camera
+                globalCamera->move(-mouseState.delta / globalCamera->getZoomFactor());
+            }
+        }
+    }
 }

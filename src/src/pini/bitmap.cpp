@@ -3,6 +3,14 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
 
+Bitmap::Bitmap(int width, int height) : Resource(""), width(width), height(height), numChannels(4)
+{
+    // Load an empty bitmap
+    this->data = (unsigned char *)new ColorRGBA[this->width * this->height];
+    this->clear();
+    Resource::finishLoad(true);
+}
+
 void Bitmap::load()
 {
     int width, height, numChannels;
@@ -38,4 +46,13 @@ ColorRGBA Bitmap::getPixel(int x, int y)
 
     ColorRGBA * pixels = (ColorRGBA *)this->data;
     return pixels[this->width * y + x];
+}
+
+void Bitmap::clear(ColorRGBA c)
+{
+    ColorRGBA * pixels = (ColorRGBA *)this->data;
+    for(int i = 0; i < width * height; i++)
+    {
+        pixels[0] = c;
+    }
 }

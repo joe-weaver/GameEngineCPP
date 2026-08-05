@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <glad/glad.h>
+#include <imgui.h>
 
 #include "bitmap.h"
 
@@ -15,7 +16,15 @@ public:
 
     void bind(int index) const;
 
+    void generateMipmaps();
+
     GLuint getTextureID() const;
+
+    // Library compatability
+    ImTextureRef as_imgui()
+    {
+        return ImTextureRef(this->textureID);
+    }
 };
 
 class UpdatingTexture : public Texture

@@ -23,6 +23,8 @@ using namespace glm;
 #include "camera.h"
 #include "random.h"
 
+#include "wfc.h"
+
 // TODO: Implement
 // #define DEBUG_DRAW
 
@@ -77,7 +79,7 @@ int main(int, char**)
 
     float main_scale = ImGui_ImplGlfw_GetContentScaleForMonitor(glfwGetPrimaryMonitor());
     vec2 windowSize = vec2(1280 * main_scale, 800 * main_scale);
-    window = glfwCreateWindow(1280 * main_scale, 800 * main_scale, "Hello World", NULL, NULL);
+    window = glfwCreateWindow(1280 * main_scale, 800 * main_scale, "デモプロジェクト", NULL, NULL);
     if (!window)
     {
         glfwTerminate();
@@ -103,6 +105,9 @@ int main(int, char**)
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+
+    // Add a font
+    io.Fonts->AddFontFromFileTTF(RESOURCE_DIR "/NotoSansJP-Regular.ttf");
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark(); //ImGui::StyleColorsLight();
@@ -151,7 +156,6 @@ int main(int, char**)
 
     onLeftClick = [&sprites](vec2 position)
     {
-        std::cout << "checking click @(" << position.x << "," << position.y << ")" << std::endl;
         // Find the sprite we interact with
         for(auto& spr : sprites)
         {
@@ -164,6 +168,36 @@ int main(int, char**)
         }
     };
 
+    // Actual project code
+    Bitmap * bmp_basis_1_1 = new Bitmap("basis_1_1.png");
+    Texture tex_basis_1_1(bmp_basis_1_1);
+
+    int N = 100;
+    WFC_TriColor wfc_1(N);
+    const WFC_TriColor::PixelState * state = wfc_1.getOutput();
+    Bitmap * stateDisplay = new Bitmap(N, N);
+
+    auto updateDisplay = [N, state, stateDisplay]()
+    {
+        for(int y = 0; y < N; y++)
+        {
+            for(int x = 0; x < N; x++)
+            {
+                WFC_TriColor::PixelState ps = state[y*N + x];
+                if(ps.collapsed)
+                    stateDisplay->setPixel(x, y, ColorRGBA(ps.red ? 255 : 0, ps.green ? 255 : 0, ps.blue ? 255 : 0, 255));
+                else
+                    stateDisplay->setPixel(x, y, ColorRGBA(255, 255, 255, 255));
+            }
+        }
+    };
+    
+    updateDisplay();
+
+    UpdatingTexture outputTex(stateDisplay);
+    Sprite outputSprite(windowSize / 2.f, vec2(100, 100), &outputTex, Shader::DEFAULT_SHADER);
+
+    // Init loop variables
     double deltaT = 0.0;
     double currentFrame = 0.0;
     double lastFrame = 0.0;
@@ -202,6 +236,7 @@ int main(int, char**)
         Shader::DEFAULT_SHADER->setMat4("uView", camera.getView());
         Shader::DEFAULT_SHADER->setMat4("uProjection", camera.getProjection());
         
+        /*
         // Corrupt random pixels in our image
         int x = r.range(0, bmp->getWidth());
         int y = r.range(0, bmp->getHeight());
@@ -214,13 +249,25 @@ int main(int, char**)
         for (auto& sprite : sprites) {
             sprite.draw();
         }
+        */
 
-#ifdef DEBUG_DRAW
-        // Debugging render pass
-        for (auto& sprite : sprites) {
-            sprite.draw_DEBUG();
+        static int SKIP_FRAMES = 0;
+        static int NUM_STEPS = 5;
+        static int framesUntilStep = 0;
+
+        if(framesUntilStep-- == 0)
+        {
+            framesUntilStep = SKIP_FRAMES;
+            for(int i = 0; i < NUM_STEPS; i++)
+            {
+                if(wfc_1.step())
+                {
+                    updateDisplay();
+                    outputTex.updateFromBitmap();
+                }
+            }
         }
-#endif
+        outputSprite.draw();
         
         GLenum err;
         while ((err = glGetError()) != GL_NO_ERROR) {
@@ -257,6 +304,8 @@ int main(int, char**)
             ImGui::Text("counter = %d", counter);
 
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+            
+            ImGui::Text("FrameBufferScale: (%f, %f)", io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
             ImGui::End();
         }
 
@@ -267,6 +316,27 @@ int main(int, char**)
             ImGui::Text("Hello from another window!");
             if (ImGui::Button("Close Me"))
                 show_another_window = false;
+            ImGui::End();
+        }
+
+        // Display the current block
+        {
+            ImGui::Begin("テクスチャテスト", &show_another_window);
+            
+            ImGuiIO& io = ImGui::GetIO();
+            ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
+            ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+            // Layout canvas
+            ImGui::Text("現在のベーシス");
+            ImGui::InvisibleButton("##Canvas", ImVec2(256, 256));
+            ImVec2 canvas_min = ImGui::GetItemRectMin();
+            ImVec2 canvas_max = ImGui::GetItemRectMax();
+
+            draw_list->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerNearest);
+            draw_list->AddImage(tex_basis_1_1.as_imgui(), canvas_min, canvas_max);
+            draw_list->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerLinear);
+
             ImGui::End();
         }
 

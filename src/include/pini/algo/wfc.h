@@ -3,8 +3,10 @@
 #include <vector>
 #include <stack>
 #include <utility>
+#include <map>
 
 #include "random.h"
+#include "bitmap.h"
 
 #define BTOI(x) (x ? 1 : 0)
 
@@ -67,7 +69,7 @@ public:
         delete[] output;
     }
 
-    bool step();
+    bool step() override;
 
     void propagate(int x, int y);
     void propagateOne(int x, int y, int color);
@@ -97,6 +99,77 @@ protected:
         else if(color == 4)
             this->output[y * this->N + x].blue = false;
     }
+};
+
+// Generate a new image that is locally similar to an input image
+class WFC_Image : WFC
+{
+public:
+    // Limit to 8 possibilities for now
+    class PixelState8
+    {
+    private:
+        static Random rand;
+        float intrinsicEntropy; // For breaking ties
+
+    public:
+        float probabilities[8] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+        bool collapsed = false;
+        bool impossible = false;
+
+        PixelState8() : intrinsicEntropy(PixelState8::rand.range(-0.01f, 0.01f)) {}
+
+        float entropy();
+
+        int chooseOne();
+
+        void collapse(int index);
+
+        u_char bitmask();
+    };
+
+    class Kernel3x3
+    {
+    private:
+        u_char k[9];
+        int center = -1;
+
+    public:
+        void init(Bitmap *bmp, const std::map<ColorRGBA, int> &colorToIndex, int x, int y);
+
+        // Assume basis is padded, otherwise error
+        int match(u_char * basis, int x, int y, int w, int h, bool ignoreCenter = true);
+
+        int getCenter() { return this->center; }
+
+        std::string toString();
+    };
+
+private:
+    std::vector<Kernel3x3> kernels; // A list of all kernels generated from the input image
+    u_char * output = nullptr; // Bordered with 0xFF for sanity
+    PixelState8 * outputProbabilities; // An array containing the float probabilities for each color
+    Bitmap * outputImage = nullptr; 
+    int N = 0;  // The size of the output
+
+    // Internel processing
+    std::map<ColorRGBA, int> colorToIndex;
+    std::vector<ColorRGBA> indexToColor;
+    int numColors = 0;
+
+    // Others
+    Random rand;
+
+public:
+    WFC_Image(Bitmap * input, int N);
+
+    bool step() override;
+
+    void updateProbabilities(int x, int y);
+
+    const Bitmap * getOutputImage() { return this->outputImage; }
+
+    std::string getDebugOutput();
 };
 
 // class WFC_Tiles : WFC

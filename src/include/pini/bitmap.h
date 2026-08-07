@@ -18,6 +18,14 @@ public:
 
     ColorRGBA(unsigned char r, unsigned char g, unsigned char b, unsigned char a) : r(r), g(g), b(b), a(a) {}
     
+    bool operator<(const ColorRGBA& other) const {
+        if (r != other.r) return r < other.r;
+        if (g != other.g) return g < other.g;
+        if (b != other.b) return b < other.b;
+        return a < other.a;
+    }
+
+    friend std::ostream& operator<<(std::ostream& os, const ColorRGBA& color);
 };
 
 // A wrapper around raw char* arrays loaded from stbi

@@ -3,6 +3,14 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
 
+std::ostream& operator<<(std::ostream& os, const ColorRGBA &color) {
+    os << "rgba(" << (int)(color.r) << ", "
+                    << (int)(color.g) << ", "
+                    << (int)(color.b) << ", "
+                    << (int)(color.a) << ")";
+    return os;
+}
+
 Bitmap::Bitmap(int width, int height) : Resource(""), width(width), height(height), numChannels(4)
 {
     // Load an empty bitmap
@@ -53,6 +61,6 @@ void Bitmap::clear(ColorRGBA c)
     ColorRGBA * pixels = (ColorRGBA *)this->data;
     for(int i = 0; i < width * height; i++)
     {
-        pixels[0] = c;
+        pixels[i] = c;
     }
 }

@@ -161,7 +161,7 @@ int main(int, char**)
         {
             if(spr.containsPoint(position))
             {
-                std::cout << "one contains!" << std::endl;
+                // std::cout << "one contains!" << std::endl;
                 spr.disabled = true;
                 break;
             }
@@ -169,10 +169,11 @@ int main(int, char**)
     };
 
     // Actual project code
-    Bitmap * bmp_basis_1_1 = new Bitmap("basis_1_1.png");
+    Bitmap * bmp_basis_1_1 = new Bitmap("test1.png");
     Texture tex_basis_1_1(bmp_basis_1_1);
+    WFC_Image wfc_2(bmp_basis_1_1, 30);
 
-    int N = 100;
+    int N = 10;
     WFC_TriColor wfc_1(N);
     const WFC_TriColor::PixelState * state = wfc_1.getOutput();
     Bitmap * stateDisplay = new Bitmap(N, N);
@@ -194,8 +195,8 @@ int main(int, char**)
     
     updateDisplay();
 
-    UpdatingTexture outputTex(stateDisplay);
-    Sprite outputSprite(windowSize / 2.f, vec2(100, 100), &outputTex, Shader::DEFAULT_SHADER);
+    UpdatingTexture outputTex(wfc_2.getOutputImage());
+    Sprite outputSprite(windowSize / 2.f, vec2(200, 200), &outputTex, Shader::DEFAULT_SHADER);
 
     // Init loop variables
     double deltaT = 0.0;
@@ -252,21 +253,46 @@ int main(int, char**)
         */
 
         static int SKIP_FRAMES = 0;
-        static int NUM_STEPS = 5;
-        static int framesUntilStep = 0;
+        static int NUM_STEPS = 1;
+        static int framesUntilStep = SKIP_FRAMES;
 
         if(framesUntilStep-- == 0)
         {
             framesUntilStep = SKIP_FRAMES;
             for(int i = 0; i < NUM_STEPS; i++)
             {
-                if(wfc_1.step())
+                // if(wfc_1.step())
+                // {
+                //     updateDisplay();
+                //     outputTex.updateFromBitmap();
+                // }
+                if(wfc_2.step())
                 {
-                    updateDisplay();
                     outputTex.updateFromBitmap();
                 }
             }
         }
+
+        static bool pressed = false;
+        static bool justPressed = false;
+
+        justPressed = false;
+        if(glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS && !pressed)
+        {
+            justPressed = true;
+            pressed = true;
+        }
+        if(glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_RELEASE)
+            pressed = false;
+
+        // if(justPressed)
+        // {
+        //     if(wfc_2.step())
+        //     {
+        //         outputTex.updateFromBitmap();
+        //     }
+        // }
+        
         outputSprite.draw();
         
         GLenum err;
@@ -339,6 +365,13 @@ int main(int, char**)
 
             ImGui::End();
         }
+
+        // {
+        //     ImGui::Begin("ディーバッグ");
+        //     std::string debugStr = wfc_2.getDebugOutput();
+        //     ImGui::Text(debugStr.c_str());
+        //     ImGui::End();
+        // }
 
         // Rendering
         ImGui::Render();

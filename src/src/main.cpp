@@ -51,8 +51,17 @@ void cursorPosCallback(GLFWwindow * window, double xpos, double ypos);
 
 std::function<void(vec2)> onLeftClick;
 
+#define RUN_TESTS
+#ifdef RUN_TESTS
+void run_tests();
+#else
+void run_tests() {}
+#endif
+
 int main(int, char**)
 {
+    run_tests();
+
     GLFWwindow* window;
 
     // Set up error callback and init
@@ -171,7 +180,7 @@ int main(int, char**)
     // Actual project code
     Bitmap * bmp_basis_1_1 = new Bitmap("test1.png");
     Texture tex_basis_1_1(bmp_basis_1_1);
-    WFC_Image wfc_2(bmp_basis_1_1, 30);
+    WFC_Image wfc_2(bmp_basis_1_1, 20, false, 123456);
 
     int N = 10;
     WFC_TriColor wfc_1(N);
@@ -266,6 +275,9 @@ int main(int, char**)
                 //     updateDisplay();
                 //     outputTex.updateFromBitmap();
                 // }
+
+                // HERE!
+
                 if(wfc_2.step())
                 {
                     outputTex.updateFromBitmap();
@@ -285,13 +297,13 @@ int main(int, char**)
         if(glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_RELEASE)
             pressed = false;
 
-        // if(justPressed)
-        // {
-        //     if(wfc_2.step())
-        //     {
-        //         outputTex.updateFromBitmap();
-        //     }
-        // }
+        if(justPressed)
+        {
+            if(wfc_2.step())
+            {
+                outputTex.updateFromBitmap();
+            }
+        }
         
         outputSprite.draw();
         
@@ -366,12 +378,12 @@ int main(int, char**)
             ImGui::End();
         }
 
-        // {
-        //     ImGui::Begin("ディーバッグ");
-        //     std::string debugStr = wfc_2.getDebugOutput();
-        //     ImGui::Text(debugStr.c_str());
-        //     ImGui::End();
-        // }
+        {
+            ImGui::Begin("ディーバッグ");
+            std::string debugStr = wfc_2.getDebugOutput();
+            // ImGui::Text(debugStr.c_str());
+            ImGui::End();
+        }
 
         // Rendering
         ImGui::Render();
@@ -472,3 +484,113 @@ void cursorPosCallback(GLFWwindow * window, double xpos, double ypos)
         }
     }
 }
+
+#ifdef RUN_TESTS
+class TestCase
+{
+private:
+    WFC_Image::Kernel3x3 a, b;   // Kernels
+    int ox, oy; // Kernel offset
+    bool expectedOutput;
+
+public:
+    TestCase(WFC_Image::Kernel3x3 a, WFC_Image::Kernel3x3 b, int ox, int oy, bool expectedOutput) : a(a), b(b), ox(ox), oy(oy), expectedOutput(expectedOutput) {}
+
+    bool run()
+    {
+        return this->a.match(&this->b, this->ox, this->oy) == this->expectedOutput;
+    }
+};
+
+void run_tests()
+{
+    // Load our test cases file
+    Bitmap * exampleKernels = new Bitmap("testcases.png");
+    int numRealTiles = 20;
+    std::vector<WFC_Image::Kernel3x3> k = std::vector<WFC_Image::Kernel3x3>();
+
+    // Create kernels for each cell
+    for(int y = 0; y < 10; y++)
+    {
+        for(int x = 0; x < 10; x++)
+        {
+            k.push_back(WFC_Image::Kernel3x3(exampleKernels, 3*x + 1, 3*y + 1));
+        }
+    }
+
+    std::vector<TestCase> testCases = std::vector<TestCase>();
+    // Simple full black vs full white check. All should fail
+    for(int oy = -1; oy <= 1; oy++)
+        for(int ox = -1; ox <= 1; ox++)
+            if(!(ox == 0 && oy == 0))
+                testCases.push_back(TestCase(k[0], k[1], -1, -1, false));
+
+    // Full black vs. part black
+    {
+        testCases.push_back(TestCase(k[1], k[2], 1, -1, true));
+        testCases.push_back(TestCase(k[1], k[2], 1, 0, true));
+        testCases.push_back(TestCase(k[1], k[2], 1, 1, true));
+
+        // The inverse should fail
+        testCases.push_back(TestCase(k[2], k[1], 1, -1, false));
+        testCases.push_back(TestCase(k[2], k[1], 1, 0, false));
+        testCases.push_back(TestCase(k[2], k[1], 1, 1, false));
+    }
+
+    // Verify flipping works
+    testCases.push_back(TestCase(k[2], k[3].reflectX(), 0, 0, true));
+    testCases.push_back(TestCase(k[3], k[2].reflectX(), 0, 0, true));
+
+    // Full black vs. part black, but tile 2 is flipped
+    {
+        testCases.push_back(TestCase(k[3], k[1], 1, -1, true));
+        testCases.push_back(TestCase(k[3], k[1], 1, 0, true));
+        testCases.push_back(TestCase(k[3], k[1], 1, 1, true));
+
+        // The inverse should fail
+        testCases.push_back(TestCase(k[1], k[3], 1, -1, false));
+        testCases.push_back(TestCase(k[1], k[3], 1, 0, false));
+        testCases.push_back(TestCase(k[1], k[3], 1, 1, false));
+    }
+
+    // Verify rotation works
+    WFC_Image::Kernel3x3 r90 = k[2].rotateCCW();
+    WFC_Image::Kernel3x3 r180 = r90.rotateCCW();
+    testCases.push_back(TestCase(k[1], r90, 0, -1, true));
+    testCases.push_back(TestCase(k[1], r180, -1, 0, true));
+    testCases.push_back(TestCase(k[1], r180.rotateCCW(), 0, 1, true));
+
+    // Verify diagonals work properly
+    testCases.push_back(TestCase(k[1], k[2], 1, -1, true));
+    testCases.push_back(TestCase(k[1], k[2], 1, 1, true));
+    testCases.push_back(TestCase(k[1], k[3], -1, -1, true));
+    testCases.push_back(TestCase(k[1], k[3], -1, 1, true));
+
+    // Other cases
+    testCases.push_back(TestCase(k[4], k[5], 1, 0, true));
+    testCases.push_back(TestCase(k[5], k[4], 1, 0, false));
+    testCases.push_back(TestCase(k[6], k[7], 1, 0, true));
+    testCases.push_back(TestCase(k[7], k[6], 1, 0, true));
+
+    testCases.push_back(TestCase(k[8], k[9], 1, 0, false));
+    testCases.push_back(TestCase(k[8], k[9], 0, -1, true));
+    testCases.push_back(TestCase(k[8], k[9], -1, 0, false));
+    testCases.push_back(TestCase(k[8], k[9], 0, 1, true));
+
+    // Run all test cases
+    int total = testCases.size();
+    int passes = 0;
+    std::vector<TestCase> failures;
+    for(int i = 0; i < total; i++)
+    {
+        bool pass = testCases[i].run();
+        
+        if(pass)
+            passes += 1;
+        else
+            failures.push_back(testCases[i]);
+    }
+
+    std::cout << "Tests Complete." << std::endl << "Passed " << passes << " out of " << total << " cases." << std::endl;
+}
+#endif

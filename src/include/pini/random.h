@@ -20,6 +20,11 @@ public:
         gen.seed(seed);
     }
 
+    void seed(int seed)
+    {
+        gen.seed(seed);
+    }
+
     int range(int min, int max)
     {
         std::uniform_int_distribution<int> dist(min, max);

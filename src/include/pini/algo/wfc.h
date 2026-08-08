@@ -1,7 +1,9 @@
 #pragma once
 
 #include <vector>
+#include <array>
 #include <stack>
+#include <queue>
 #include <utility>
 #include <map>
 
@@ -105,109 +107,87 @@ protected:
 class WFC_Image : WFC
 {
 public:
-    // Limit to 8 possibilities for now
-    class PixelState8
+    class PixelState
     {
     private:
-        static Random rand;
-        float intrinsicEntropy; // For breaking ties
+        Random *rand = nullptr;
 
     public:
-        float probabilities[8] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+        bool *p = nullptr;
+        bool isOwner = false;
+        int np = 0;
         bool collapsed = false;
         bool impossible = false;
+        int index = -1; // -1 if undecided or impossible [0, np) otherwise
 
-        PixelState8() : intrinsicEntropy(PixelState8::rand.range(-0.01f, 0.01f)) {}
+        PixelState(Random * rand, int numPossibilities = 0) : rand(rand), np(numPossibilities), isOwner(true)
+        {
+            this->p = new bool[this->np];
+            for(int i = 0; i < this->np; i++)
+                this->p[i] = true;
+        }
+
+        PixelState(const PixelState &other): p(other.p), np(other.np),
+            collapsed(other.collapsed), impossible(other.impossible), index(other.index), rand(other.rand)
+        {}
+
+        ~PixelState()
+        {
+            // Safe delete in case of copy constructors
+            // TODO: Add this back in properly
+            // if(this->isOwner)
+            //     delete[] this->p;
+        }
 
         float entropy();
 
         int chooseOne();
 
-        void collapse(int index);
-
-        u_char bitmask();
+        void collapse();
     };
 
     class Kernel3x3
     {
     private:
-        u_char k[9];
-        int center = -1;
-
+        std::array<ColorRGBA, 9> k;
+        Kernel3x3() {};
+        
     public:
-        void init(Bitmap *bmp, const std::map<ColorRGBA, int> &colorToIndex, int x, int y);
+        Kernel3x3(Bitmap *bmp, int x, int y);
+    
+        Kernel3x3 rotateCCW();
+        Kernel3x3 reflectX();
 
-        // Assume basis is padded, otherwise error
-        int match(u_char * basis, int x, int y, int w, int h, bool ignoreCenter = true);
+        // offsetX and offsetY are the offset (from top left to bottom right) of other
+        bool match(const Kernel3x3 * other, int offsetX, int offsetY) const;
 
-        int getCenter() { return this->center; }
+        ColorRGBA getCenter() { return k[4]; }
 
         std::string toString();
     };
 
 private:
     std::vector<Kernel3x3> kernels; // A list of all kernels generated from the input image
-    u_char * output = nullptr; // Bordered with 0xFF for sanity
-    PixelState8 * outputProbabilities; // An array containing the float probabilities for each color
-    Bitmap * outputImage = nullptr; 
+    std::vector<PixelState> output;
+    Bitmap * outputImage = nullptr;
     int N = 0;  // The size of the output
+    int N2 = 0; // The square of the size of the output
+    int K = 3; // The size of our kernel, currently hardcoded at 3
+    int hK = 1; // Half the size of our kernel for cleaner math
 
-    // Internel processing
-    std::map<ColorRGBA, int> colorToIndex;
-    std::vector<ColorRGBA> indexToColor;
-    int numColors = 0;
+    std::queue<std::pair<int, int>> needsPropagation; // A queue of items that need propagation, since they changed
 
     // Others
     Random rand;
 
 public:
-    WFC_Image(Bitmap * input, int N);
+    WFC_Image(Bitmap * input, int N, bool generateTransformations = true, int seed = 0);
 
     bool step() override;
 
-    void updateProbabilities(int x, int y);
+    void propagate(int x, int y);
 
     const Bitmap * getOutputImage() { return this->outputImage; }
 
     std::string getDebugOutput();
 };
-
-// class WFC_Tiles : WFC
-// {
-// public:
-//     static class Rule1x2
-//     {
-//         int first = 0;
-//         int second = 0;
-
-//         Rule1x2(int first, int second) : first(first), second(second) {}
-//     };
-
-// protected:
-//     int * output = nullptr;
-//     int outputSize = 0; // The output is NxN right now
-//     int numTiles = 0;
-//     std::vector<Rule1x2> rules;
-
-// public:
-//     WFC_Tiles(int * output, int outputSize, int numTiles) :
-//         output(output), outputSize(outputSize), numTiles(numTiles)
-//     {}
-
-//     // Adds a valid pair of neighbors
-//     // direction: 1: first-second, 2: second-first, 4: first/second, 8: second/first
-//     // By default all directions are allowed
-//     void addPair(int first, int second, int direction = 15)
-//     {
-//         for(int i = 1; i < 16; i = i << 2)
-//         {
-//             if(direction | i)
-//                 rules.push(Rules(first, second, i));
-//         }
-//     }
-
-//     void step()
-//     {
-        
-//     }
-// };

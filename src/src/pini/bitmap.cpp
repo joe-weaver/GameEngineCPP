@@ -11,7 +11,7 @@ std::ostream& operator<<(std::ostream& os, const ColorRGBA &color) {
     return os;
 }
 
-Bitmap::Bitmap(int width, int height) : Resource(""), width(width), height(height), numChannels(4)
+Bitmap::Bitmap(int width, int height, BitmapEdgeMode edgeMode) : Resource(""), width(width), height(height), numChannels(4), edgeMode(edgeMode)
 {
     // Load an empty bitmap
     this->data = (unsigned char *)new ColorRGBA[this->width * this->height];
@@ -49,7 +49,21 @@ void Bitmap::setPixel(int x, int y, ColorRGBA c)
 
 ColorRGBA Bitmap::getPixel(int x, int y)
 {
-    if(x < 0 || y < 0 || x >= width || y >= height)
+    if(this->edgeMode == BitmapEdgeMode::Wrap)
+    {
+        x = x % this->width;
+        if(x < 0) x += this->width;
+        y = y % this->height;
+        if(y < 0) y += this->height;
+    }
+    else if(this->edgeMode == BitmapEdgeMode::Extend)
+    {
+        if(x < 0) x = 0;
+        if(x >= width) x = width - 1;
+        if(y < 0) y = 0;
+        if(y >= height) y = height - 1;
+    }
+    else if(x < 0 || y < 0 || x >= width || y >= height) // BitmapEdgeMode::None and error cases
         return ColorRGBA(0, 0, 0, 0);
 
     ColorRGBA * pixels = (ColorRGBA *)this->data;

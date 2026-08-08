@@ -18,14 +18,27 @@ public:
 
     ColorRGBA(unsigned char r, unsigned char g, unsigned char b, unsigned char a) : r(r), g(g), b(b), a(a) {}
     
-    bool operator<(const ColorRGBA& other) const {
+    bool operator<(const ColorRGBA& other) const
+    {
         if (r != other.r) return r < other.r;
         if (g != other.g) return g < other.g;
         if (b != other.b) return b < other.b;
         return a < other.a;
     }
 
+    bool operator==(const ColorRGBA &other) const 
+    {
+        return r == other.r && g == other.g && b == other.b && a == other.a;
+    }
+
     friend std::ostream& operator<<(std::ostream& os, const ColorRGBA& color);
+};
+
+enum BitmapEdgeMode
+{
+    None,   // Return transparent pixels when out of bounds
+    Extend,   // Keep the edge pixel color going
+    Wrap,   // Wrap the coordinates around to the other side of the bitmap
 };
 
 // A wrapper around raw char* arrays loaded from stbi
@@ -36,14 +49,15 @@ private:
     int height = -1;
     int numChannels = -1;
     unsigned char * data = nullptr;
+    BitmapEdgeMode edgeMode;
 
 public:
-    Bitmap(const char * filepath) : Resource(filepath)
+    Bitmap(const char * filepath, BitmapEdgeMode edgeMode = BitmapEdgeMode::None) : Resource(filepath), edgeMode(edgeMode)
     {
         this->load();
     }
 
-    Bitmap(int width, int height);
+    Bitmap(int width, int height, BitmapEdgeMode edgeMode = BitmapEdgeMode::None);
 
     virtual void load() override;
 
@@ -56,10 +70,12 @@ public:
     void clear(ColorRGBA c = ColorRGBA());
 
     // Getters
-    const int getWidth() const { return this->width; }
-    const int getHeight() const { return this->height; }
-    const int getNumChannels() const { return this->numChannels; }
+    int getWidth() const { return this->width; }
+    int getHeight() const { return this->height; }
+    int getNumChannels() const { return this->numChannels; }
     const unsigned char * getData() const { return data; }
+    BitmapEdgeMode getEdgeMode() const { return this->edgeMode; }
+    void setEdgeMode(BitmapEdgeMode edgeMode) {this->edgeMode = edgeMode; }
 
     // Library compatability
     ImVec2 getSize_imgui()

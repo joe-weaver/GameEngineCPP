@@ -37,6 +37,12 @@ public:
         return dist(gen);
     }
 
+    float range(double min, double max)
+    {
+        std::uniform_real_distribution<double> dist(min, max);
+        return dist(gen);
+    }
+
     ColorRGBA colorRGBA(bool randomAlpha = false)
     {
         std::uniform_int_distribution<int> dist(0, 255);

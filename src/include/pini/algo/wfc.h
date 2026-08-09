@@ -111,39 +111,30 @@ public:
     {
     private:
         Random *rand = nullptr;
+        double intrinsicEntropy = 0.0;
 
     public:
         bool *p = nullptr;
-        bool isOwner = false;
         int np = 0;
+        int statesLeft = 0;
         bool collapsed = false;
         bool impossible = false;
         int index = -1; // -1 if undecided or impossible [0, np) otherwise
 
-        PixelState(Random * rand, int numPossibilities = 0) : rand(rand), np(numPossibilities), isOwner(true)
+        PixelState(Random * rand, int numPossibilities = 0) : rand(rand), np(numPossibilities), statesLeft(numPossibilities)
         {
             this->p = new bool[this->np];
             for(int i = 0; i < this->np; i++)
                 this->p[i] = true;
+            
+            this->intrinsicEntropy = rand->range(0.0, 0.1);
         }
 
-        PixelState(const PixelState &other): p(other.p), np(other.np),
-            collapsed(other.collapsed), impossible(other.impossible), index(other.index), rand(other.rand)
-        {}
-
-        ~PixelState()
-        {
-            // Safe delete in case of copy constructors
-            // TODO: Add this back in properly
-            // if(this->isOwner)
-            //     delete[] this->p;
-        }
-
-        float entropy();
+        double entropy();
 
         int chooseOne();
 
-        void collapse();
+        void collapse(bool chooseFromMany = true);
     };
 
     class Kernel3x3
@@ -168,20 +159,31 @@ public:
 
 private:
     std::vector<Kernel3x3> kernels; // A list of all kernels generated from the input image
+    int numKernels = 0;
+    bool * matches = nullptr; // A pre-computed list of kernel matches
+
     std::vector<PixelState> output;
     Bitmap * outputImage = nullptr;
     int N = 0;  // The size of the output
     int N2 = 0; // The square of the size of the output
     int K = 3; // The size of our kernel, currently hardcoded at 3
     int hK = 1; // Half the size of our kernel for cleaner math
+    bool wrapOutput = false; // Whether to wrap the output around itself
 
     std::queue<std::pair<int, int>> needsPropagation; // A queue of items that need propagation, since they changed
+    bool * allowedKernels = nullptr; // A helper for the propagation function
 
     // Others
     Random rand;
+    int numCollapsedThisStep = 0;
+    int numPropThisStep = 0;
 
 public:
-    WFC_Image(Bitmap * input, int N, bool generateTransformations = true, int seed = 0);
+    double avgCollapsedPerStep = 0;
+    double avgPropPerStep = 0;
+
+public:
+    WFC_Image(Bitmap * input, int N, bool generateTransformations = true, int seed = 0, bool wrapOutput = false);
 
     bool step() override;
 

@@ -21,8 +21,10 @@ Bitmap::Bitmap(int width, int height, BitmapEdgeMode edgeMode) : Resource(""), w
 
 void Bitmap::load()
 {
-    int width, height, numChannels;
-    this->data = stbi_load(this->filepath.c_str(), &this->width, &this->height, &this->numChannels, 0);
+    this->data = stbi_load(this->filepath.c_str(), &this->width, &this->height, &this->numChannels, 4);
+
+    // TODO: Could handle a different number of channels but ignore for now
+    this->numChannels = 4;
 
     if(!this->data)
     {

@@ -58,6 +58,13 @@ void run_tests();
 void run_tests() {}
 #endif
 
+struct InputFile_Image
+{
+    const char * filename;
+    BitmapEdgeMode edgeMode;
+    bool generateTransformations;
+};
+
 int main(int, char**)
 {
     run_tests();
@@ -178,9 +185,30 @@ int main(int, char**)
     };
 
     // Actual project code
-    Bitmap * bmp_basis_1_1 = new Bitmap("test1.png");
+    
+    InputFile_Image flower = {.filename = "Flower.png", .edgeMode = BitmapEdgeMode::Extend, .generateTransformations = false};
+    InputFile_Image trees = {.filename = "Trees.png", .edgeMode = BitmapEdgeMode::Wrap, .generateTransformations = false};
+    InputFile_Image grassy = {.filename = "Grassy.png", .edgeMode = BitmapEdgeMode::Extend, .generateTransformations = false};
+    InputFile_Image brick = {.filename = "Brick.png", .edgeMode = BitmapEdgeMode::Wrap, .generateTransformations = false};
+    InputFile_Image maze = {.filename = "Maze.png", .edgeMode = BitmapEdgeMode::Wrap, .generateTransformations = true};
+    InputFile_Image QR = {.filename = "QR.png", .edgeMode = BitmapEdgeMode::None, .generateTransformations = false};
+    InputFile_Image cave = {.filename = "Cave.png", .edgeMode = BitmapEdgeMode::Extend, .generateTransformations = false};
+    InputFile_Image spiral = {.filename = "Spiral.png", .edgeMode = BitmapEdgeMode::None, .generateTransformations = true};
+    InputFile_Image regions = {.filename = "Regions.png", .edgeMode = BitmapEdgeMode::None, .generateTransformations = true};
+    InputFile_Image glyphs = {.filename = "Glyphs.png", .edgeMode = BitmapEdgeMode::Wrap, .generateTransformations = false};
+    InputFile_Image gradient = {.filename = "Gradient.png", .edgeMode = BitmapEdgeMode::Extend, .generateTransformations = true};
+    InputFile_Image coastal = {.filename = "Coastal.png", .edgeMode = BitmapEdgeMode::Extend, .generateTransformations = true};
+
+
+    InputFile_Image * fileToUse = &coastal;
+
+    int outputSize = 32;
+    bool wrapOutput = false;
+    int seed = 123457;
+    
+    Bitmap * bmp_basis_1_1 = new Bitmap(fileToUse->filename, fileToUse->edgeMode);
     Texture tex_basis_1_1(bmp_basis_1_1);
-    WFC_Image wfc_2(bmp_basis_1_1, 20, false, 123456);
+    WFC_Image wfc_2(bmp_basis_1_1, outputSize, fileToUse->generateTransformations, seed, wrapOutput);
 
     int N = 10;
     WFC_TriColor wfc_1(N);
@@ -379,9 +407,21 @@ int main(int, char**)
         }
 
         {
+            static double avgProp = 0;
+            static double avgColl = 0;
+            static int GET_AVG_FRAMES = 60;
+            static int framesUntilGetAvg = GET_AVG_FRAMES;
+
+            if(framesUntilGetAvg-- <= 0)
+            {
+                framesUntilGetAvg = GET_AVG_FRAMES;
+                avgProp = wfc_2.avgPropPerStep;
+                avgColl = wfc_2.avgCollapsedPerStep;
+            }
+
             ImGui::Begin("ディーバッグ");
-            std::string debugStr = wfc_2.getDebugOutput();
-            // ImGui::Text(debugStr.c_str());
+            ImGui::Text("Avg. propagations per step: %.0f", avgProp);
+            ImGui::Text("Avg. collapses per step: %.0f", avgColl);
             ImGui::End();
         }
 

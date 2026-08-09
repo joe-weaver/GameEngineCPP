@@ -177,6 +177,8 @@ void WFC_TriColor::propagateOne(int x, int y, int color)
     }
 }
 
+const struct {int x; int y;} offsets[4] = {{1, 0}, {0, -1}, {-1, 0}, {0, 1}};
+
 WFC_Image::Kernel3x3::Kernel3x3(Bitmap *bmp, int x, int y)
 {
     for(int r = 0; r < 3; r++)
@@ -263,13 +265,9 @@ bool WFC_Image::Kernel3x3::match(const Kernel3x3 * other, int offsetX, int offse
     return true;
 }
 
-float WFC_Image::PixelState::entropy()
+double WFC_Image::PixelState::entropy()
 {
-    float sum = 0.f;
-    for(int i = 0; i < this->np; i++)
-        sum += this->p[i] ? 1 : 0;
-
-    return sum;
+    return this->statesLeft + this->intrinsicEntropy;
 }
 
 int WFC_Image::PixelState::chooseOne()
@@ -292,32 +290,50 @@ int WFC_Image::PixelState::chooseOne()
     return -1;
 }
 
-void WFC_Image::PixelState::collapse()
+void WFC_Image::PixelState::collapse(bool chooseFromMany)
 {
-    int index = this->chooseOne();
-    
-    if(index == -1)
+    if(chooseFromMany)
     {
-        // Handle error state - make this impossible
-        this->impossible = true;
-        for(int i = 0; i < this->np; i++)
-            this->p[i] = false;
-        return;
-    }
+        int index = this->chooseOne();
+        
+        if(index == -1)
+        {
+            // Handle error state - make this impossible
+            this->impossible = true;
+            for(int i = 0; i < this->np; i++)
+                this->p[i] = false;
+            return;
+        }
 
-    for(int i = 0; i < this->np; i++)
+        for(int i = 0; i < this->np; i++)
+        {
+            if(i == index)
+                this->p[i] = true;
+            else
+                this->p[i] = false;
+        }
+
+        this->index = index;
+    }
+    else
     {
-        if(i == index)
-            this->p[i] = true;
-        else
-            this->p[i] = false;
+        for(int i = 0; i < this->np; i++)
+        {
+            if(this->p[i])
+            {
+                this->index = i;
+                break;
+            }
+        }
     }
     
-    this->index = index;
     this->collapsed = true;
 }
 
-WFC_Image::WFC_Image(Bitmap * input, int N, bool generateTransformations, int seed) :  N(N), N2(N*N), K(3), hK(3/2)
+#define MATCH(i, j, idx) this->matches[i * 4 * this->numKernels + j * 4 + idx]
+
+WFC_Image::WFC_Image(Bitmap * input, int N, bool generateTransformations, int seed, bool wrapOutput) :
+    N(N), N2(N*N), K(3), hK(3/2), wrapOutput(wrapOutput)
 {
     // Seed the random number generator
     if(seed != 0)
@@ -380,51 +396,41 @@ WFC_Image::WFC_Image(Bitmap * input, int N, bool generateTransformations, int se
         }
     }
 
+    this->numKernels = kernels.size();
+    this->allowedKernels = new bool[this->numKernels];
+
+    std::cout << "Num kernals: " << this->kernels.size() << std::endl;
+
+    matches = new bool[this->numKernels * this->numKernels * 4];
+    for(int i = 0; i < this->numKernels; i++)
+    {
+        for(int j = 0; j < this->numKernels; j++)
+        {
+            MATCH(i, j, 0) = this->kernels[i].match(&this->kernels[j], offsets[0].x, offsets[0].y);
+            MATCH(i, j, 1) = this->kernels[i].match(&this->kernels[j], offsets[1].x, offsets[1].y);
+            MATCH(i, j, 2) = this->kernels[i].match(&this->kernels[j], offsets[2].x, offsets[2].y);
+            MATCH(i, j, 3) = this->kernels[i].match(&this->kernels[j], offsets[3].x, offsets[3].y);
+        }
+    }
+
     // Generate our initial state
     for(int i = 0; i < this->N2; i++)
         this->output.push_back(PixelState(&this->rand, this->kernels.size()));
 
     this->outputImage = new Bitmap(N, N);
 
-    this->outputImage->clear(ColorRGBA(255, 0, 0, 255));
-
-    // // Add one cell to the middle
-    // int x = 10;
-    // int y = 10;
-    // int i_best = y * N + x;
-
-    // for(int i = 0; i < this->output[i_best].np; i++)
-    // {
-    //     if(i != 0)
-    //         this->output[i_best].p[i] = false;
-    // }
-
-
-    // this->output[i_best].collapse();
-
-    // // Update the output image accordingly
-    // ColorRGBA color = this->kernels[this->output[i_best].index].getCenter();
-    // this->outputImage->setPixel(x, y, color);
-
-    // this->needsPropagation.push({x, y});
-    // while(!this->needsPropagation.empty())
-    // {
-    //     auto coords = this->needsPropagation.front();
-    //     this->needsPropagation.pop();
-    //     this->propagate(coords.first, coords.second);
-    // }
+    this->outputImage->clear(ColorRGBA(255, 255, 255, 255));
 }
 
+#define E_MAX 1000000.0
 bool WFC_Image::step()
 {
     static int stepNumber = 0;
     if(this->finished)
         return false;
-    else
-        std::cout << "Step " << stepNumber++ << ":" << std::endl;
 
     // Find the output pixel with the lowest entropy (that isn't already determined or impossible)
-    float e_best = 1000.f;
+    double e_best = E_MAX;
     int i_best;
 
     for(int i = 0; i < this->N2; i++)
@@ -433,7 +439,7 @@ bool WFC_Image::step()
         if(this->output[i].collapsed || this->output[i].impossible)
             continue;
 
-        float e = this->output[i].entropy();
+        double e = this->output[i].entropy();
 
         if(e < e_best)
         {
@@ -443,19 +449,17 @@ bool WFC_Image::step()
         }
     }
 
-    if(e_best == 1000.f)
+    if(e_best == E_MAX)
     {
         // We're done, everything is already collapsed or impossible
         this->finished = true;
-        std::cout << "Finished!" << std::endl;
+        std::cout << "Finished! " << std::endl;
         return false;
     }
 
     // Get our x and y
     int x = i_best % this->N;
     int y = i_best / this->N;
-
-    std::cout << "Best is: (" << x << ", " << y << ") with e: " << e_best << std::endl;
 
     // Collapse this cell to one of it's options at random
     this->output[i_best].collapse();
@@ -465,66 +469,86 @@ bool WFC_Image::step()
         this->finished = true;
         this->error = true;
         std::cout << "Got error!" << std::endl;
-
         std::cout << "Error cell: (" << x << ", " << y << ")" << std::endl;
-
         std::cout << "Neighbor cell patterns are: " << std::endl;
 
         for(int oy = -1; oy <= 1; oy++)
-        {
             for(int ox = -1; ox <= 1; ox++)
-            {
                 if(x + ox >= 0 && y + oy >= 0 && x + ox < this->N && y + oy < this->N)
-                {
                     if(this->output[(y + oy) * this->N + x + ox].collapsed)
                     {
                         std::cout << "(" << (x + ox) << ", " << (y + oy) << ") - " << this->output[(y + oy) * this->N + x + ox].index << ":" << std::endl;
                         std::cout << this->kernels[this->output[(y + oy) * this->N + x + ox].index].toString();
                     }
-                }
-            }
-        }
 
         return false;
     }
 
-    // Update the output image accordingly
-    ColorRGBA color = this->kernels[this->output[i_best].index].getCenter();
-    this->outputImage->setPixel(x, y, color);
-
-    std::cout << "\tDecided on k = " << i_best << ", color = " << color << std::endl;
-
     // While we have changes to propagate, loop
+    this->numCollapsedThisStep = 1;
+    this->numPropThisStep = 0;
     this->needsPropagation.push({x, y});
     while(!this->needsPropagation.empty())
     {
         auto coords = this->needsPropagation.front();
         this->needsPropagation.pop();
+        if(this->output[coords.second * this->N + coords.first].statesLeft == 0)
+        {
+            this->output[coords.second * this->N + coords.first].impossible = true;
+            continue;
+        }
         this->propagate(coords.first, coords.second);
+        this->numPropThisStep += 1;
+    }
+    
+    // Fully propagated, look for cells we can collapse
+    for(int i = 0; i < output.size(); i++)
+    {
+        if(output[i].statesLeft == 1 && !output[i].collapsed)
+        {
+            output[i].collapse(false);
+            this->numCollapsedThisStep += 1;
+        }
+    }
+
+    this->avgCollapsedPerStep = this->avgCollapsedPerStep * 0.9 + this->numCollapsedThisStep;
+    this->avgPropPerStep = this->avgPropPerStep * 0.9 + this->numPropThisStep;
+
+    // Update the output image accordingly
+    for(int i = 0; i < this->output.size(); i++)
+    {
+        if(this->output[i].collapsed)
+        {
+            ColorRGBA color = this->kernels[this->output[i].index].getCenter();
+            this->outputImage->setPixel(i % this->N, i / this->N, color);
+        }
     }
 
     // We're done for this step
     return true;
 }
 
-// TODO: this doesn't currently set "collapsed", even if there's only one possiblity left
+#define PROP_DIST(x, y, ox, oy) (abs(x - ox) + abs(y - oy))
+
 void WFC_Image::propagate(int x, int y)
 {
     const PixelState ourState = this->output[y*this->N + x];
 
-    // Generate a sets of allowed neighboring kernals
-    std::vector<bool> allowedKernels(this->kernels.size());
-
-    static const struct {int x; int y;} offsets[4] = {{1, 0}, {0, -1}, {-1, 0}, {0, 1}};
-
     // Propagate to all of our neighbors
-    for(auto offset : offsets)
+    for(int oi = 0; oi < 4; oi++)
     {
-        int ox = x + offset.x;
-        int oy = y + offset.y;
+        int ox = x + offsets[oi].x;
+        int oy = y + offsets[oi].y;
 
         // Ignore out of bounds pixels
-        if(ox < 0 || ox >= this->N || oy < 0 || oy >= this->N) continue;
+        if(this->wrapOutput)
+        {
+            ox = ox % this->N;
+            if(ox < 0) ox += this->N;
+            oy = oy % this->N;
+            if(oy < 0) oy += this->N;
+        }
+        else if(ox < 0 || ox >= this->N || oy < 0 || oy >= this->N) continue;
 
         // Get our neighbor
         PixelState * ps = &this->output[(oy)*this->N + ox];
@@ -533,31 +557,25 @@ void WFC_Image::propagate(int x, int y)
         if(ps->collapsed || ps->impossible) continue;
             
         // Initialize to false
-        for(int i = 0; i < allowedKernels.size(); i++)
-            allowedKernels[i] = false;
+        for(int i = 0; i < this->numKernels; i++)
+            this->allowedKernels[i] = false;
 
         // For all of our kernels, check which kernels our neighbor could be
         for(int i = 0; i < ourState.np; i++)
         {
-            // TODO: Initially calculate, then cache this information
-            for(int j = 0; j < allowedKernels.size(); j++)
-            {
-                if(ourState.p[i])   // This is one of our possible states
-                {
-                    // Does our possible state match with this kernel?
-                    bool matches = this->kernels[i].match(&this->kernels[j], offset.x, offset.y);
+            if(!ourState.p[i]) continue;
 
-                    // If yes, allow it in our neighbor
-                    allowedKernels[j] = allowedKernels[j] || matches;
-                }
+            for(int j = 0; j < this->numKernels; j++)
+            {
+                // Does our possible state match with this kernel?
+                // If yes, allow it in our neighbor
+                allowedKernels[j] = allowedKernels[j] || MATCH(i, j, oi);
             }
         }
 
-        // std::cout << std::endl << "New neighbor: @(" << (ox) << ", " << (oy) << ")" << std::endl;
-
         // We have our allowed kernals, time to update our neighbor
         bool changedNeighbor = false;   // For logging, check if this neighbor changed
-        for(int i = 0; i < allowedKernels.size(); i++)
+        for(int i = 0; i < this->numKernels; i++)
         {
             // What is our neighbor's current pixel state?
             bool curr = ps->p[i];
@@ -567,19 +585,16 @@ void WFC_Image::propagate(int x, int y)
             {
                 // Ban it - remove the possiblity
                 ps->p[i] = false;
+                ps->statesLeft -= 1;
                 changedNeighbor = true;
-
-                // std::cout << "Removing possiblity: " << std::endl;
-                // std::cout << this->kernels[i].toString();
             }
         }
 
-        // if(ps->entropy() == 0)
-        //     std::cout << "Just went to zero!" << std::endl;
-
         // If we changed our neighbor, we need to propagate its changes to its neighbors
         if(changedNeighbor)
+        {   
             this->needsPropagation.push({ox, oy});
+        }
     }
 }
 
@@ -597,7 +612,7 @@ std::string WFC_Image::getDebugOutput()
                 ss << "XX";
             else
             {
-                int e = this->output[y*this->N + x].entropy();
+                int e = this->output[y*this->N + x].statesLeft;
                 if(e == 0)
                     ss << "__";
                 else

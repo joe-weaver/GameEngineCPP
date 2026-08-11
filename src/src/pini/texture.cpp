@@ -3,6 +3,14 @@
 #include <iostream>
 #include "bitmap.h"
 
+Texture * Texture::DEFAULT_TEXTURE = nullptr;
+
+void Texture::initPrimitives()
+{
+    Bitmap::initPrimitives();
+    Texture::DEFAULT_TEXTURE = new Texture(Bitmap::DEFAULT_BITMAP);
+}
+
 Texture::Texture(const Bitmap *bmp)
 {
     // Associate it with a texture
@@ -15,6 +23,12 @@ Texture::Texture(const Bitmap *bmp)
 
     this->imageFormat = (bmp->getNumChannels() == 4) ? GL_RGBA : GL_RGB;
     glTexImage2D(GL_TEXTURE_2D, 0, this->imageFormat, bmp->getWidth(), bmp->getHeight(), 0, this->imageFormat, GL_UNSIGNED_BYTE, bmp->getData());
+}
+
+Texture::~Texture()
+{
+    if(this->textureID)
+        glDeleteTextures(1, &this->textureID);
 }
 
 void Texture::bind(int index) const

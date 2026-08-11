@@ -7,12 +7,19 @@
 
 class Texture
 {
+public:
+    static Texture * DEFAULT_TEXTURE;
+    
+    static void initPrimitives();
+
 protected:
-    GLuint textureID;
+    GLuint textureID = 0;
     GLenum imageFormat;
 
 public:
     Texture(const Bitmap *bmp);
+    
+    ~Texture();
 
     void bind(int index) const;
 

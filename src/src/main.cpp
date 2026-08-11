@@ -25,9 +25,6 @@ using namespace glm;
 
 #include "wfc.h"
 
-// TODO: Implement
-// #define DEBUG_DRAW
-
 static void glfw_error_callback(int error, const char* description)
 {
     fprintf(stderr, "GLFW Error %d: %s\n", error, description);
@@ -58,11 +55,360 @@ void run_tests();
 void run_tests() {}
 #endif
 
+enum Language
+{
+    EN = 0,
+    JP = 1
+};
+
+Language language = Language::JP;
+
+struct L10nText
+{
+    const char * en = nullptr;
+    const char * jp = nullptr;
+
+    const char * txt();
+};
+
+static void HelpMarker(const char* desc)
+{
+    ImGui::TextDisabled("(?)");
+    if (ImGui::BeginItemTooltip())
+    {
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+        ImGui::TextUnformatted(desc);
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
+}
+
+class GlobalSettings
+{
+public:
+    void processInputs() {}
+
+    void drawUIs()
+    {
+        ImGuiIO& io = ImGui::GetIO();
+
+        ImVec2 windowPos = ImVec2(5.0f, 5.0f);
+        ImVec2 windowPivot = ImVec2(0.0f, 0.0f);
+
+        ImGui::SetNextWindowPos(windowPos, ImGuiCond_Always, windowPivot);
+
+        ImGuiWindowFlags flags =
+            ImGuiWindowFlags_NoDecoration |
+            ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoSavedSettings |
+            ImGuiWindowFlags_NoFocusOnAppearing |
+            ImGuiWindowFlags_NoNav |
+            ImGuiWindowFlags_AlwaysAutoResize |
+            ImGuiWindowFlags_NoBackground;
+
+        ImGui::Begin("LanguageButton", nullptr, flags);
+
+        // ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.2f, 0.2f, 1.0f));        // normal state (red)
+        // ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.9f, 0.3f, 0.3f, 1.0f)); // hover state (lighter red)
+        // ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.7f, 0.1f, 0.1f, 1.0f));  // pressed state (darker red)
+
+        
+
+        // ImGui::PopStyleColor(3); // pop the same number of colors you pushed
+        ImGui::End();
+    }
+};
+
+const char * L10nText::txt()
+    {
+        switch (language)
+        {
+        case Language::JP:
+            return jp;
+        
+        default:
+            return en;
+        }
+    }
+
 struct InputFile_Image
 {
+    L10nText name;
     const char * filename;
     BitmapEdgeMode edgeMode;
     bool generateTransformations;
+};
+
+class DemoManager
+{
+public:
+    virtual void start() = 0;
+    virtual void processInputs() = 0;   // Handle any inputs BEFORE rendering (not during)
+    virtual void update() = 0;
+    virtual void drawGameObjects() = 0;
+    virtual void drawUIs() = 0;
+};
+
+class WFC_Image_DemoManager : public DemoManager
+{
+private:
+    std::vector<InputFile_Image> inputImages;
+    int currentInputIndex = -1;
+    Bitmap * basis = nullptr;
+    Texture * basisTexture = nullptr;    // The texture to display in imgui
+    WFC_Image * wfc = nullptr;
+    bool running = false;
+    int framesUntilStep = 0;
+    int processingSpeed = 0;
+    UpdatingTexture * outputTexture = nullptr;  // The texture to display in game
+    Sprite * outputSprite = nullptr;    // The sprite to use to display the output
+
+    int outputSize = 32;
+    int wrapOutput = false;
+    int seed = 123456;
+
+    // UI State variables
+    std::vector<L10nText> listItems;
+    int selectedListItem = 0;
+    bool needsHandleStartStop = false;
+    bool needsHandleClear = false;
+    bool needsChangeSeed = false;
+
+    enum Element_OutputSize { size16, size32, size64, size96, size128, META_COUNT };
+    int elem_os = Element_OutputSize::size32;
+    const char * elem_os_names[Element_OutputSize::META_COUNT] = { "16", "32", "64", "96", "128" };
+    int outputSizes[Element_OutputSize::META_COUNT] { 16, 32, 64, 96, 128 };
+
+
+public:
+    WFC_Image_DemoManager(vec2 windowSize)
+    {
+        int size = min(windowSize.x, windowSize.y);
+        size = 0.8 * size;
+        this->outputSprite = new Sprite(windowSize / 2.f - size / 2.f, vec2(size, size));
+    }
+
+    void addInput(InputFile_Image input)
+    {
+        this->inputImages.push_back(input);
+    }
+
+    void changeInput(int index)
+    {
+        if(index < 0 || index > inputImages.size()) return;
+        
+        if(this->currentInputIndex != -1)
+        {
+            delete this->basis;
+            this->basis = nullptr;
+
+            delete this->basisTexture;
+            this->basisTexture = nullptr;
+
+            delete this->outputTexture;
+            this->outputTexture = nullptr;
+
+            delete this->wfc;
+
+            this->currentInputIndex = -1;
+        }
+
+        this->currentInputIndex = index;
+        this->selectedListItem = index;
+        InputFile_Image imageToLoad = this->inputImages[this->currentInputIndex];
+        this->basis = new Bitmap(imageToLoad.filename, imageToLoad.edgeMode);
+        this->basisTexture = new Texture(this->basis);
+        this->wfc = new WFC_Image(this->basis, this->outputSize, imageToLoad.generateTransformations, this->seed, this->wrapOutput);
+        this->outputTexture = new UpdatingTexture(this->wfc->getOutputImage());
+        
+        // Update our sprite with the new texture
+        this->outputSprite->updateTexture(this->outputTexture);
+    }
+
+    virtual void start() override
+    {
+        // Arbitrarilty select index 0
+        this->changeInput(0);
+
+        // Initialize some of our ui data
+        listItems.resize(this->inputImages.size());
+        for(int i = 0; i < this->inputImages.size(); i++)
+        {
+            listItems[i] = this->inputImages[i].name;
+        }
+    }
+
+    virtual void processInputs() override
+    {
+        if(this->outputSizes[this->elem_os] != this->outputSize)
+        {
+            // We need to update our output size
+            this->outputSize = this->outputSizes[this->elem_os];
+            this->needsHandleClear = true;
+            this->wfc->resizeOutput(this->outputSize);
+
+            // Delete the old output texture
+            delete this->outputTexture;
+            this->outputTexture = nullptr;
+
+            // And create a new one
+            this->outputTexture = new UpdatingTexture(this->wfc->getOutputImage());
+            this->outputSprite->updateTexture(this->outputTexture);
+        }
+
+        if(this->selectedListItem != this->currentInputIndex)
+        {
+            // We need to change our input
+            this->needsHandleClear = false;
+            this->needsHandleStartStop = false;
+            this->changeInput(this->selectedListItem);
+        }
+
+        if(this->needsHandleClear || this->needsChangeSeed)
+        {
+            this->needsHandleStartStop = false;
+            this->needsHandleClear = false;
+            this->running = false;
+
+            static Random rand;
+            if(this->needsChangeSeed)
+                this->wfc->clear(rand.range(1, 999999));
+            else
+                this->wfc->clear();
+            this->outputTexture->updateFromBitmap();
+        }
+
+        if(this->needsHandleStartStop)
+        {
+            this->needsHandleStartStop = false;
+            this->running = !this->running;
+        }
+
+        if(this->needsChangeSeed)
+        {
+            this->needsChangeSeed = false;
+            this->running = true;
+        }
+    }
+
+    virtual void update() override
+    {
+        if(this->running)
+        {
+            if(this->framesUntilStep-- == 0)
+            {
+                this->framesUntilStep = this->processingSpeed;
+                if(this->wfc->step())
+                {
+                    this->outputTexture->updateFromBitmap();
+                }
+                else
+                {
+                    this->running = false;
+                }
+            }
+        }
+    }
+
+    virtual void drawGameObjects() override
+    {
+        this->outputSprite->draw();
+    }
+    
+    virtual void drawUIs() override
+    {
+        static double avgProp = 0;
+        static double avgColl = 0;
+        static int GET_AVG_FRAMES = 60;
+        static int framesUntilGetAvg = GET_AVG_FRAMES;
+
+        if(framesUntilGetAvg-- <= 0)
+        {
+            framesUntilGetAvg = GET_AVG_FRAMES;
+            avgProp = this->wfc->avgPropPerStep;
+            avgColl = this->wfc->avgCollapsedPerStep;
+        }
+
+        ImGui::Begin("##Settings");
+        
+        static L10nText LANG_BTN_TXT = {"日本語", "English"};
+        if (ImGui::Button(LANG_BTN_TXT.txt())) {
+            if(language == Language::EN)
+                language = Language::JP;
+            else
+                language = Language::EN;
+        }
+
+        static L10nText CHOOSE_TXT = {"Choose Input Image:", "インプットイメージを選ぶ："};
+        ImGui::Text(CHOOSE_TXT.txt());
+
+        // Pass in the preview value visible before opening the combo (it could technically be different contents or not pulled from items[])
+        const char* combo_preview_value = this->listItems[this->selectedListItem].txt();
+        if(ImGui::BeginCombo(" ", combo_preview_value))
+        {
+            for (int n = 0; n < this->listItems.size(); n++)
+            {
+                const bool is_selected = (this->selectedListItem == n);
+                if(ImGui::Selectable(this->listItems[n].txt(), is_selected))
+                    this->selectedListItem = n;
+
+                // Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
+                if(is_selected)
+                    ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        
+        ImGuiIO& io = ImGui::GetIO();
+        ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
+        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+        // Layout canvas
+        static L10nText IM_LABEL_TXT = {"Current Input", "現在のインプット"};
+        ImGui::Text(IM_LABEL_TXT.txt());
+
+        // We want max dimension to be 256
+        int w = this->basis->getWidth();
+        int h = this->basis->getHeight();
+        float ratio = 256.f / float(w > h ? w : h);
+        w *= ratio;
+        h *= ratio;
+
+        ImGui::InvisibleButton("##Canvas", ImVec2(w, h));
+        ImVec2 canvas_min = ImGui::GetItemRectMin();
+        ImVec2 canvas_max = ImGui::GetItemRectMax();
+
+        draw_list->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerNearest);
+        draw_list->AddImage(this->basisTexture->as_imgui(), canvas_min, canvas_max);
+        draw_list->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerLinear);
+
+        static L10nText START_TXT = {"Start", "スタート"};
+        static L10nText PAUSE_TXT = {"Pause", "ポーズ"};
+        const char * currText = this->running ? PAUSE_TXT.txt() : START_TXT.txt();
+        if(ImGui::Button(currText))
+            this->needsHandleStartStop = true;
+        ImGui::SameLine();
+
+        static L10nText CLEAR_TXT = {"Clear", "クリアー"};
+        if(ImGui::Button(CLEAR_TXT.txt()))
+            this->needsHandleClear = true;
+        ImGui::SameLine();
+
+        static L10nText SEED_TXT = {"Change Seed", "シードを変える"};
+        if(ImGui::Button(SEED_TXT.txt()))
+            this->needsChangeSeed = true;
+
+        
+        const char* elem_name = (elem_os >= 0 && elem_os < Element_OutputSize::META_COUNT) ? elem_os_names[elem_os] : "??";
+
+        ImGui::BeginDisabled(this->running);
+        static L10nText OUTPUTSIZE_TXT = {"Output Size:", "アウトプットサイズ："};
+        ImGui::Text(OUTPUTSIZE_TXT.txt());
+        ImGui::SliderInt("##outputSize", &elem_os, 0, Element_OutputSize::META_COUNT - 1, elem_name); // Use ImGuiSliderFlags_NoInput flag to disable Ctrl+Click here.
+        ImGui::EndDisabled();
+
+        ImGui::End();
+    }
 };
 
 int main(int, char**)
@@ -73,7 +419,7 @@ int main(int, char**)
 
     // Set up error callback and init
     glfwSetErrorCallback(glfw_error_callback);
-    if (!glfwInit())
+    if(!glfwInit())
         return -1;
         
     // Select GL version + let the backend select a GLSL version
@@ -96,7 +442,7 @@ int main(int, char**)
     float main_scale = ImGui_ImplGlfw_GetContentScaleForMonitor(glfwGetPrimaryMonitor());
     vec2 windowSize = vec2(1280 * main_scale, 800 * main_scale);
     window = glfwCreateWindow(1280 * main_scale, 800 * main_scale, "デモプロジェクト", NULL, NULL);
-    if (!window)
+    if(!window)
     {
         glfwTerminate();
         return -1;
@@ -105,7 +451,7 @@ int main(int, char**)
     glfwSwapInterval(1); // Enable vsync
 
     // Initialize GLAD
-    if (!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress)))
+    if(!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress)))
     {
         std::cout << std::unitbuf
                   << "[ERROR] " << __FILE__ << ':' << __LINE__ << ' ' << __PRETTY_FUNCTION__
@@ -140,7 +486,7 @@ int main(int, char**)
     // State variables
     bool show_demo_window = true;
     bool show_another_window = false;
-    ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+    ImVec4 clear_color = ImVec4(134.f/255.f, 147.f/255.f, 174.f/255.f, 1.f);
 
     // Game engine things
     // Setup callbacks
@@ -149,11 +495,9 @@ int main(int, char**)
     glfwSetMouseButtonCallback(window, mouseButtonCallback);
 
     // Initialize internal game engine values
-    const_cast<Shader *>(Shader::DEFAULT_SHADER)->fromFile(
-        RESOURCE_DIR "/default.vert.glsl",
-        RESOURCE_DIR "/default.frag.glsl");
-    
+    Shader::initPrimitives();
     Mesh::initPrimitives();
+    Texture::initPrimitives();
 
     // Load our default texture
     Bitmap *bmp = new Bitmap("test.png");
@@ -185,55 +529,25 @@ int main(int, char**)
     };
 
     // Actual project code
-    
-    InputFile_Image flower = {.filename = "Flower.png", .edgeMode = BitmapEdgeMode::Extend, .generateTransformations = false};
-    InputFile_Image trees = {.filename = "Trees.png", .edgeMode = BitmapEdgeMode::Wrap, .generateTransformations = false};
-    InputFile_Image grassy = {.filename = "Grassy.png", .edgeMode = BitmapEdgeMode::Extend, .generateTransformations = false};
-    InputFile_Image brick = {.filename = "Brick.png", .edgeMode = BitmapEdgeMode::Wrap, .generateTransformations = false};
-    InputFile_Image maze = {.filename = "Maze.png", .edgeMode = BitmapEdgeMode::Wrap, .generateTransformations = true};
-    InputFile_Image QR = {.filename = "QR.png", .edgeMode = BitmapEdgeMode::None, .generateTransformations = false};
-    InputFile_Image cave = {.filename = "Cave.png", .edgeMode = BitmapEdgeMode::Extend, .generateTransformations = false};
-    InputFile_Image spiral = {.filename = "Spiral.png", .edgeMode = BitmapEdgeMode::None, .generateTransformations = true};
-    InputFile_Image regions = {.filename = "Regions.png", .edgeMode = BitmapEdgeMode::None, .generateTransformations = true};
-    InputFile_Image glyphs = {.filename = "Glyphs.png", .edgeMode = BitmapEdgeMode::Wrap, .generateTransformations = false};
-    InputFile_Image gradient = {.filename = "Gradient.png", .edgeMode = BitmapEdgeMode::Extend, .generateTransformations = true};
-    InputFile_Image coastal = {.filename = "Coastal.png", .edgeMode = BitmapEdgeMode::Extend, .generateTransformations = true};
+    GlobalSettings * globalSettings = new GlobalSettings();
+    language = Language::JP;
+    WFC_Image_DemoManager * wfcImageDM = new WFC_Image_DemoManager(windowSize);
 
+    wfcImageDM->addInput({.name = {"Flower", "花"}, .filename = "Flower.png", .edgeMode = BitmapEdgeMode::Extend, .generateTransformations = false});
+    wfcImageDM->addInput({.name = {"Trees", "林"}, .filename = "Trees.png", .edgeMode = BitmapEdgeMode::Wrap, .generateTransformations = false});
+    wfcImageDM->addInput({.name = {"Grassy", "高原"}, .filename = "Grassy.png", .edgeMode = BitmapEdgeMode::Extend, .generateTransformations = false});
+    wfcImageDM->addInput({.name = {"Brick", "レンガ"}, .filename = "Brick.png", .edgeMode = BitmapEdgeMode::Wrap, .generateTransformations = false});
+    wfcImageDM->addInput({.name = {"Maze", "迷路"}, .filename = "Maze.png", .edgeMode = BitmapEdgeMode::Wrap, .generateTransformations = true});
+    wfcImageDM->addInput({.name = {"QR", "QR"}, .filename = "QR.png", .edgeMode = BitmapEdgeMode::None, .generateTransformations = false});
+    wfcImageDM->addInput({.name = {"Cave", "洞窟"}, .filename = "Cave.png", .edgeMode = BitmapEdgeMode::Extend, .generateTransformations = false});
+    wfcImageDM->addInput({.name = {"Spiral", "渦巻き"}, .filename = "Spiral.png", .edgeMode = BitmapEdgeMode::None, .generateTransformations = true});
+    wfcImageDM->addInput({.name = {"Regions", "地帯"}, .filename = "Regions.png", .edgeMode = BitmapEdgeMode::None, .generateTransformations = true});
+    wfcImageDM->addInput({.name = {"Glyphs", "グリフ"}, .filename = "Glyphs.png", .edgeMode = BitmapEdgeMode::Wrap, .generateTransformations = false});
+    wfcImageDM->addInput({.name = {"Gradient", "グラディエント"}, .filename = "Gradient.png", .edgeMode = BitmapEdgeMode::Extend, .generateTransformations = true});
+    wfcImageDM->addInput({.name = {"Coastal", "海岸"}, .filename = "Coastal.png", .edgeMode = BitmapEdgeMode::Extend, .generateTransformations = true});
+    wfcImageDM->addInput({.name = {"WalledCities", "城郭都市"}, .filename = "WalledCities.png", .edgeMode = BitmapEdgeMode::Extend, .generateTransformations = true});
 
-    InputFile_Image * fileToUse = &coastal;
-
-    int outputSize = 32;
-    bool wrapOutput = false;
-    int seed = 123457;
-    
-    Bitmap * bmp_basis_1_1 = new Bitmap(fileToUse->filename, fileToUse->edgeMode);
-    Texture tex_basis_1_1(bmp_basis_1_1);
-    WFC_Image wfc_2(bmp_basis_1_1, outputSize, fileToUse->generateTransformations, seed, wrapOutput);
-
-    int N = 10;
-    WFC_TriColor wfc_1(N);
-    const WFC_TriColor::PixelState * state = wfc_1.getOutput();
-    Bitmap * stateDisplay = new Bitmap(N, N);
-
-    auto updateDisplay = [N, state, stateDisplay]()
-    {
-        for(int y = 0; y < N; y++)
-        {
-            for(int x = 0; x < N; x++)
-            {
-                WFC_TriColor::PixelState ps = state[y*N + x];
-                if(ps.collapsed)
-                    stateDisplay->setPixel(x, y, ColorRGBA(ps.red ? 255 : 0, ps.green ? 255 : 0, ps.blue ? 255 : 0, 255));
-                else
-                    stateDisplay->setPixel(x, y, ColorRGBA(255, 255, 255, 255));
-            }
-        }
-    };
-    
-    updateDisplay();
-
-    UpdatingTexture outputTex(wfc_2.getOutputImage());
-    Sprite outputSprite(windowSize / 2.f, vec2(200, 200), &outputTex, Shader::DEFAULT_SHADER);
+    wfcImageDM->start();
 
     // Init loop variables
     double deltaT = 0.0;
@@ -257,7 +571,7 @@ int main(int, char**)
 
         glfwPollEvents();
 
-        if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
+        if(glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
         {
             ImGui_ImplGlfw_Sleep(10);
             continue;
@@ -267,51 +581,11 @@ int main(int, char**)
         glClear(GL_COLOR_BUFFER_BIT);
 
         // For now, all objects use the default shader
-        // TODO: Add support for switching shaders
         Shader::DEFAULT_SHADER->use();
 
         // These don't change, so set them out here
         Shader::DEFAULT_SHADER->setMat4("uView", camera.getView());
         Shader::DEFAULT_SHADER->setMat4("uProjection", camera.getProjection());
-        
-        /*
-        // Corrupt random pixels in our image
-        int x = r.range(0, bmp->getWidth());
-        int y = r.range(0, bmp->getHeight());
-        ColorRGBA color = r.colorRGBA();
-
-        bmp->setPixel(x, y, color);
-        texture.updateFromBitmap();
-
-        // Render game content
-        for (auto& sprite : sprites) {
-            sprite.draw();
-        }
-        */
-
-        static int SKIP_FRAMES = 0;
-        static int NUM_STEPS = 1;
-        static int framesUntilStep = SKIP_FRAMES;
-
-        if(framesUntilStep-- == 0)
-        {
-            framesUntilStep = SKIP_FRAMES;
-            for(int i = 0; i < NUM_STEPS; i++)
-            {
-                // if(wfc_1.step())
-                // {
-                //     updateDisplay();
-                //     outputTex.updateFromBitmap();
-                // }
-
-                // HERE!
-
-                if(wfc_2.step())
-                {
-                    outputTex.updateFromBitmap();
-                }
-            }
-        }
 
         static bool pressed = false;
         static bool justPressed = false;
@@ -324,21 +598,16 @@ int main(int, char**)
         }
         if(glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_RELEASE)
             pressed = false;
-
-        if(justPressed)
-        {
-            if(wfc_2.step())
-            {
-                outputTex.updateFromBitmap();
-            }
-        }
-        
-        outputSprite.draw();
         
         GLenum err;
         while ((err = glGetError()) != GL_NO_ERROR) {
             std::cerr << "OpenGL error: " << err << std::endl;
         }
+
+        globalSettings->processInputs();
+        wfcImageDM->processInputs();
+        wfcImageDM->update();
+        wfcImageDM->drawGameObjects();
 
         /* START IMGUI */
         // Start the Dear ImGui frame
@@ -346,84 +615,12 @@ int main(int, char**)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
+        globalSettings->drawUIs();
+        wfcImageDM->drawUIs();
+
         // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
-        if (show_demo_window)
+        if(show_demo_window)
             ImGui::ShowDemoWindow(&show_demo_window);
-
-        // 2. Show a simple window that we create ourselves. We use a Begin/End pair to create a named window.
-        {
-            static float f = 0.0f;
-            static int counter = 0;
-
-            ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
-
-            ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
-            ImGui::Checkbox("Demo Window", &show_demo_window);      // Edit bools storing our window open/close state
-            ImGui::Checkbox("Another Window", &show_another_window);
-
-            ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
-            ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
-
-            if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
-                counter++;
-            ImGui::SameLine();
-            ImGui::Text("counter = %d", counter);
-
-            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-            
-            ImGui::Text("FrameBufferScale: (%f, %f)", io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
-            ImGui::End();
-        }
-
-        // 3. Show another simple window.
-        if (show_another_window)
-        {
-            ImGui::Begin("Another Window", &show_another_window);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
-            ImGui::Text("Hello from another window!");
-            if (ImGui::Button("Close Me"))
-                show_another_window = false;
-            ImGui::End();
-        }
-
-        // Display the current block
-        {
-            ImGui::Begin("テクスチャテスト", &show_another_window);
-            
-            ImGuiIO& io = ImGui::GetIO();
-            ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
-            ImDrawList* draw_list = ImGui::GetWindowDrawList();
-
-            // Layout canvas
-            ImGui::Text("現在のベーシス");
-            ImGui::InvisibleButton("##Canvas", ImVec2(256, 256));
-            ImVec2 canvas_min = ImGui::GetItemRectMin();
-            ImVec2 canvas_max = ImGui::GetItemRectMax();
-
-            draw_list->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerNearest);
-            draw_list->AddImage(tex_basis_1_1.as_imgui(), canvas_min, canvas_max);
-            draw_list->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerLinear);
-
-            ImGui::End();
-        }
-
-        {
-            static double avgProp = 0;
-            static double avgColl = 0;
-            static int GET_AVG_FRAMES = 60;
-            static int framesUntilGetAvg = GET_AVG_FRAMES;
-
-            if(framesUntilGetAvg-- <= 0)
-            {
-                framesUntilGetAvg = GET_AVG_FRAMES;
-                avgProp = wfc_2.avgPropPerStep;
-                avgColl = wfc_2.avgCollapsedPerStep;
-            }
-
-            ImGui::Begin("ディーバッグ");
-            ImGui::Text("Avg. propagations per step: %.0f", avgProp);
-            ImGui::Text("Avg. collapses per step: %.0f", avgColl);
-            ImGui::End();
-        }
 
         // Rendering
         ImGui::Render();
@@ -478,20 +675,20 @@ void mouseButtonCallback(GLFWwindow * window, int button, int action, int mods)
     // imgui is treated like an overlay, so if it didn't absorb the scroll, use it ourselves
     if(!ImGui::GetIO().WantCaptureMouse)
     {
-        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
+        if(button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
             mouseState.leftClickStart = currentFrame;
-        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE)
+        if(button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE)
         {
             onLeftClick(globalCamera->screenToWorld(mouseState.currPos));
             mouseState.leftClickStart = 0.0;
         }
-        if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS)
+        if(button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS)
             mouseState.rightClickStart = currentFrame;
-        if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_RELEASE)
+        if(button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_RELEASE)
             mouseState.rightClickStart = 0.0;
-        if (button == GLFW_MOUSE_BUTTON_MIDDLE && action == GLFW_PRESS)
+        if(button == GLFW_MOUSE_BUTTON_MIDDLE && action == GLFW_PRESS)
             mouseState.middleClickStart = currentFrame;
-        if (button == GLFW_MOUSE_BUTTON_MIDDLE && action == GLFW_RELEASE)
+        if(button == GLFW_MOUSE_BUTTON_MIDDLE && action == GLFW_RELEASE)
             mouseState.middleClickStart = 0.0;
     }
 }

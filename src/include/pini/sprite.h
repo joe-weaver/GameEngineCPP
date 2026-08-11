@@ -14,7 +14,7 @@ public:
     vec2 size;
     bool disabled = false;
 
-    Sprite(vec2 position, vec2 size, const Texture * texture, const Shader * shader) : 
+    Sprite(vec2 position, vec2 size, const Texture * texture = Texture::DEFAULT_TEXTURE, const Shader * shader = Shader::DEFAULT_SHADER) : 
         position(position), size(size), texture(texture), shader(shader) {}
 
     bool containsPoint(vec2 point)
@@ -24,6 +24,8 @@ public:
 
         return xOverlaps && yOverlaps;
     }
+
+    void updateTexture(Texture * texture) { this->texture = texture; }
 
     void draw();
 

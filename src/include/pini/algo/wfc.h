@@ -121,14 +121,9 @@ public:
         bool impossible = false;
         int index = -1; // -1 if undecided or impossible [0, np) otherwise
 
-        PixelState(Random * rand, int numPossibilities = 0) : rand(rand), np(numPossibilities), statesLeft(numPossibilities)
-        {
-            this->p = new bool[this->np];
-            for(int i = 0; i < this->np; i++)
-                this->p[i] = true;
-            
-            this->intrinsicEntropy = rand->range(0.0, 0.1);
-        }
+        PixelState(Random * rand, int numPossibilities = 0);
+
+        void clear();
 
         double entropy();
 
@@ -175,6 +170,7 @@ private:
 
     // Others
     Random rand;
+    int seed;
     int numCollapsedThisStep = 0;
     int numPropThisStep = 0;
 
@@ -184,6 +180,12 @@ public:
 
 public:
     WFC_Image(Bitmap * input, int N, bool generateTransformations = true, int seed = 0, bool wrapOutput = false);
+
+    ~WFC_Image();
+
+    void resizeOutput(int N);
+
+    void clear(int reseed = 0);
 
     bool step() override;
 

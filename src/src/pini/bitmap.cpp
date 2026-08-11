@@ -3,6 +3,13 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
 
+Bitmap * Bitmap::DEFAULT_BITMAP = nullptr;
+
+void Bitmap::initPrimitives()
+{
+    Bitmap::DEFAULT_BITMAP = new Bitmap("DEFAULT_TEXTURE.png");
+}
+
 std::ostream& operator<<(std::ostream& os, const ColorRGBA &color) {
     os << "rgba(" << (int)(color.r) << ", "
                     << (int)(color.g) << ", "
@@ -78,5 +85,19 @@ void Bitmap::clear(ColorRGBA c)
     for(int i = 0; i < width * height; i++)
     {
         pixels[i] = c;
+    }
+}
+
+void Bitmap::fillFrom(Bitmap * other, float scale)
+{
+    for(int y = 0; y < this->height; y++)
+    {
+        for(int x = 0; x < this->width; x++)
+        {
+            int ox = int(x / scale) % other->width;
+            int oy = int(y / scale) % other->height;
+
+            this->setPixel(x, y, other->getPixel(ox, oy));
+        }
     }
 }

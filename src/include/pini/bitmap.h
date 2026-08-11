@@ -44,6 +44,11 @@ enum BitmapEdgeMode
 // A wrapper around raw char* arrays loaded from stbi
 class Bitmap : public Resource
 {
+public :
+    static Bitmap * DEFAULT_BITMAP;
+
+    static void initPrimitives();
+
 private:
     int width = -1;
     int height = -1;
@@ -68,6 +73,8 @@ public:
     ColorRGBA getPixel(int x, int y);
 
     void clear(ColorRGBA c = ColorRGBA());
+
+    void fillFrom(Bitmap * other, float scale);
 
     // Getters
     int getWidth() const { return this->width; }

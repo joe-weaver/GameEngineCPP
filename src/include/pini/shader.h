@@ -16,6 +16,8 @@ class Shader
 public:
     static const Shader * DEFAULT_SHADER;
 
+    static void initPrimitives();
+
     Shader() {}
 
     // Read shader from file

@@ -265,6 +265,29 @@ bool WFC_Image::Kernel3x3::match(const Kernel3x3 * other, int offsetX, int offse
     return true;
 }
 
+WFC_Image::PixelState::PixelState(Random * rand, int numPossibilities) :
+    rand(rand), np(numPossibilities), statesLeft(numPossibilities)
+{
+    this->p = new bool[this->np];
+    for(int i = 0; i < this->np; i++)
+        this->p[i] = true;
+    
+    this->intrinsicEntropy = rand->range(0.0, 0.1);
+}
+
+void WFC_Image::PixelState::clear()
+{
+    this->statesLeft = this->np;
+    this->collapsed = false;
+    this->impossible = false;
+    this->index = -1;
+
+    for(int i = 0; i < this->np; i++)
+        this->p[i] = true;
+    
+    this->intrinsicEntropy = rand->range(0.0, 0.1);
+}
+
 double WFC_Image::PixelState::entropy()
 {
     return this->statesLeft + this->intrinsicEntropy;
@@ -333,7 +356,7 @@ void WFC_Image::PixelState::collapse(bool chooseFromMany)
 #define MATCH(i, j, idx) this->matches[i * 4 * this->numKernels + j * 4 + idx]
 
 WFC_Image::WFC_Image(Bitmap * input, int N, bool generateTransformations, int seed, bool wrapOutput) :
-    N(N), N2(N*N), K(3), hK(3/2), wrapOutput(wrapOutput)
+    N(N), N2(N*N), K(3), hK(3/2), wrapOutput(wrapOutput), seed(seed)
 {
     // Seed the random number generator
     if(seed != 0)
@@ -357,23 +380,30 @@ WFC_Image::WFC_Image(Bitmap * input, int N, bool generateTransformations, int se
     {
         for(int x = 0; x < w; x++)
         {
-            auto addIfNotExists = [this](const Kernel3x3 &k) {
-                bool alreadyExists = false;
-                for(int i = 0; i < this->kernels.size(); i++)
-                {
-                    if(this->kernels[i].match(&k, 0, 0))
-                    {
-                        alreadyExists = true;
-                        break;
-                    }
-                }
+            bool allowDuplicates = false;
 
-                if(!alreadyExists)
+            auto addToKernel = [this, allowDuplicates](const Kernel3x3 &k) {
+                if(!allowDuplicates)
+                {
+                    bool alreadyExists = false;
+                    for(int i = 0; i < this->kernels.size(); i++)
+                    {
+                        if(this->kernels[i].match(&k, 0, 0))
+                        {
+                            alreadyExists = true;
+                            break;
+                        }
+                    }
+
+                    if(!alreadyExists)
+                    this->kernels.push_back(k);
+                }
+                else
                     this->kernels.push_back(k);
             };
 
             Kernel3x3 k = Kernel3x3(input, x + ox, y + oy);
-            addIfNotExists(k);
+            addToKernel(k);
 
             if(generateTransformations)
             {
@@ -385,13 +415,13 @@ WFC_Image::WFC_Image(Bitmap * input, int N, bool generateTransformations, int se
                 Kernel3x3 k180x = k180.reflectX();
                 Kernel3x3 k270x = k270.reflectX();
 
-                addIfNotExists(k90);
-                addIfNotExists(k180);
-                addIfNotExists(k270);
-                addIfNotExists(kx);
-                addIfNotExists(k90x);
-                addIfNotExists(k180x);
-                addIfNotExists(k270x);
+                addToKernel(k90);
+                addToKernel(k180);
+                addToKernel(k270);
+                addToKernel(kx);
+                addToKernel(k90x);
+                addToKernel(k180x);
+                addToKernel(k270x);
             }
         }
     }
@@ -419,13 +449,60 @@ WFC_Image::WFC_Image(Bitmap * input, int N, bool generateTransformations, int se
 
     this->outputImage = new Bitmap(N, N);
 
-    this->outputImage->clear(ColorRGBA(255, 255, 255, 255));
+    this->outputImage->fillFrom(Bitmap::DEFAULT_BITMAP, 8);
+}
+
+WFC_Image::~WFC_Image()
+{
+    for(int i = 0; i < this->N2; i++)
+    {
+        delete this->output[i].p;
+        this->output[i].p = nullptr;
+    }
+
+    delete this->allowedKernels;
+    delete this->outputImage;
+}
+
+void WFC_Image::resizeOutput(int N)
+{
+    for(int i = 0; i < this->N2; i++)
+    {
+        delete this->output[i].p;
+        this->output[i].p = nullptr;
+    }
+    this->output.clear();
+
+    this->N = N;
+    this->N2 = N * N;
+
+    for(int i = 0; i < this->N2; i++)
+        this->output.push_back(PixelState(&this->rand, this->kernels.size()));
+
+    delete this->outputImage;
+    this->outputImage = new Bitmap(N, N);
+    this->outputImage->fillFrom(Bitmap::DEFAULT_BITMAP, 8);
+}
+
+void WFC_Image::clear(int reseed)
+{
+    if(reseed)
+        this->seed = reseed;
+    
+    this->rand.seed(this->seed);
+
+    for(int i = 0; i < this->N2; i++)
+        this->output[i].clear();
+    
+    this->outputImage->fillFrom(Bitmap::DEFAULT_BITMAP, 8);
+
+    this->finished = false;
+    this->error = false;
 }
 
 #define E_MAX 1000000.0
 bool WFC_Image::step()
 {
-    static int stepNumber = 0;
     if(this->finished)
         return false;
 

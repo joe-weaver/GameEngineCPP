@@ -46,8 +46,6 @@ void scrollCallback(GLFWwindow * window, double xoffset, double yoffset);
 void mouseButtonCallback(GLFWwindow * window, int button, int action, int mods);
 void cursorPosCallback(GLFWwindow * window, double xpos, double ypos);
 
-std::function<void(vec2)> onLeftClick;
-
 #define RUN_TESTS
 #ifdef RUN_TESTS
 void run_tests();
@@ -73,6 +71,7 @@ struct L10nText
 
 static void HelpMarker(const char* desc)
 {
+    ImGui::SameLine();
     ImGui::TextDisabled("(?)");
     if (ImGui::BeginItemTooltip())
     {
@@ -164,6 +163,7 @@ private:
     Sprite * outputSprite = nullptr;    // The sprite to use to display the output
 
     int outputSize = 32;
+    int distanceHeuristic = 999999;
     int wrapOutput = false;
     int seed = 123456;
 
@@ -174,10 +174,15 @@ private:
     bool needsHandleClear = false;
     bool needsChangeSeed = false;
 
-    enum Element_OutputSize { size16, size32, size64, size96, size128, META_COUNT };
+    enum Element_OutputSize { size16, size32, size64, size96, size128, size_META_COUNT };
     int elem_os = Element_OutputSize::size32;
-    const char * elem_os_names[Element_OutputSize::META_COUNT] = { "16", "32", "64", "96", "128" };
-    int outputSizes[Element_OutputSize::META_COUNT] { 16, 32, 64, 96, 128 };
+    const char * elem_os_names[Element_OutputSize::size_META_COUNT] = { "16px", "32px", "64px", "96px", "128px" };
+    int outputSizes[Element_OutputSize::size_META_COUNT] { 16, 32, 64, 96, 128 };
+
+    enum Element_DistanceHeuristic { amt4, amt8, amt16, amt32, amt64, inf, dist_META_COUNT };
+    int elem_dh = Element_DistanceHeuristic::inf;
+    const char * elem_dh_names[Element_DistanceHeuristic::dist_META_COUNT] = { "4px", "8px", "16px", "32px", "64px", "∞" };
+    int distanceAmts[Element_DistanceHeuristic::dist_META_COUNT] { 4, 8, 16, 32, 64, 999999 };
 
 
 public:
@@ -219,6 +224,7 @@ public:
         this->basis = new Bitmap(imageToLoad.filename, imageToLoad.edgeMode);
         this->basisTexture = new Texture(this->basis);
         this->wfc = new WFC_Image(this->basis, this->outputSize, imageToLoad.generateTransformations, this->seed, this->wrapOutput);
+        this->wfc->setMaxDistanceHeuristic(this->distanceHeuristic);
         this->outputTexture = new UpdatingTexture(this->wfc->getOutputImage());
         
         // Update our sprite with the new texture
@@ -254,6 +260,12 @@ public:
             // And create a new one
             this->outputTexture = new UpdatingTexture(this->wfc->getOutputImage());
             this->outputSprite->updateTexture(this->outputTexture);
+        }
+
+        if(this->distanceAmts[this->elem_dh] != this->distanceHeuristic)
+        {
+            this->distanceHeuristic = this->distanceAmts[this->elem_dh];
+            this->wfc->setMaxDistanceHeuristic(this->distanceHeuristic);
         }
 
         if(this->selectedListItem != this->currentInputIndex)
@@ -399,13 +411,23 @@ public:
             this->needsChangeSeed = true;
 
         
-        const char* elem_name = (elem_os >= 0 && elem_os < Element_OutputSize::META_COUNT) ? elem_os_names[elem_os] : "??";
+        const char* elem_name = (elem_os >= 0 && elem_os < Element_OutputSize::size_META_COUNT) ? elem_os_names[elem_os] : "??";
 
         ImGui::BeginDisabled(this->running);
         static L10nText OUTPUTSIZE_TXT = {"Output Size:", "アウトプットサイズ："};
         ImGui::Text(OUTPUTSIZE_TXT.txt());
-        ImGui::SliderInt("##outputSize", &elem_os, 0, Element_OutputSize::META_COUNT - 1, elem_name); // Use ImGuiSliderFlags_NoInput flag to disable Ctrl+Click here.
+        ImGui::SliderInt("##outputSize", &elem_os, 0, Element_OutputSize::size_META_COUNT - 1, elem_name);
         ImGui::EndDisabled();
+
+        const char* elem_name2 = (elem_dh >= 0 && elem_dh < Element_DistanceHeuristic::dist_META_COUNT) ? elem_dh_names[elem_dh] : "??";
+
+        ImGui::BeginDisabled(this->running);
+        static L10nText DISTANCEHEUR_TXT = {"Wave Distance (heuristic):", "伝搬距離（発見的値）："};
+        ImGui::Text(DISTANCEHEUR_TXT.txt());
+        ImGui::SliderInt("##distanceHeuristic", &elem_dh, 0, Element_DistanceHeuristic::dist_META_COUNT - 1, elem_name2);
+        ImGui::EndDisabled();
+        static L10nText DISTANCEHEUR_HELP_TXT = {"Smaller numbers generally result in more error pixels", "アウトプットが変化することがあるが、値が下げるほどエラーが多くなる"};
+        HelpMarker(DISTANCEHEUR_HELP_TXT.txt());
 
         ImGui::End();
     }
@@ -454,7 +476,7 @@ int main(int, char**)
     if(!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress)))
     {
         std::cout << std::unitbuf
-                  << "[ERROR] " << __FILE__ << ':' << __LINE__ << ' ' << __PRETTY_FUNCTION__
+                  << "[ERROR] " << __FILE__ << ':' << __LINE__ << ' '
                   << "\n[ERROR] " << "Failed to initialize GLAD!"
                   << std::nounitbuf << std::endl;
 
@@ -468,8 +490,19 @@ int main(int, char**)
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
 
-    // Add a font
+    // Add a font TODO: Get a better system for this (imgui)
+#ifdef USE_EMBEDDED_RESOURCES
+    int fontFileSize = 0;
+    const void * data = (void *)ResourceManager::loadDataFile("NotoSansJP-Regular.ttf", &fontFileSize);
+
+    // Don't give font ownership to imgui
+    ImFontConfig font_cfg;
+    font_cfg.FontDataOwnedByAtlas = false;
+
+    io.Fonts->AddFontFromMemoryTTF(const_cast<void *>(data), fontFileSize, 0.f, &font_cfg);
+#else
     io.Fonts->AddFontFromFileTTF(RESOURCE_DIR "/NotoSansJP-Regular.ttf");
+#endif
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark(); //ImGui::StyleColorsLight();
@@ -499,34 +532,9 @@ int main(int, char**)
     Mesh::initPrimitives();
     Texture::initPrimitives();
 
-    // Load our default texture
-    Bitmap *bmp = new Bitmap("test.png");
-    UpdatingTexture texture(bmp);
-    Random r;
-
-    std::vector<Sprite> sprites;
-    for(int i = 0; i < 10; i++)
-    {
-        sprites.push_back(Sprite(windowSize * (i / 10.f), vec2(60, 60), &texture, Shader::DEFAULT_SHADER));
-    }
-
     // Create a camera
     Camera camera(windowSize/2.f, windowSize);
     globalCamera = &camera;
-
-    onLeftClick = [&sprites](vec2 position)
-    {
-        // Find the sprite we interact with
-        for(auto& spr : sprites)
-        {
-            if(spr.containsPoint(position))
-            {
-                // std::cout << "one contains!" << std::endl;
-                spr.disabled = true;
-                break;
-            }
-        }
-    };
 
     // Actual project code
     GlobalSettings * globalSettings = new GlobalSettings();
@@ -538,6 +546,7 @@ int main(int, char**)
     wfcImageDM->addInput({.name = {"Grassy", "高原"}, .filename = "Grassy.png", .edgeMode = BitmapEdgeMode::Extend, .generateTransformations = false});
     wfcImageDM->addInput({.name = {"Brick", "レンガ"}, .filename = "Brick.png", .edgeMode = BitmapEdgeMode::Wrap, .generateTransformations = false});
     wfcImageDM->addInput({.name = {"Maze", "迷路"}, .filename = "Maze.png", .edgeMode = BitmapEdgeMode::Wrap, .generateTransformations = true});
+    wfcImageDM->addInput({.name = {"Dungeon", "ダンジョン"}, .filename = "Dungeon.png", .edgeMode = BitmapEdgeMode::Extend, .generateTransformations = true});
     wfcImageDM->addInput({.name = {"QR", "QR"}, .filename = "QR.png", .edgeMode = BitmapEdgeMode::None, .generateTransformations = false});
     wfcImageDM->addInput({.name = {"Cave", "洞窟"}, .filename = "Cave.png", .edgeMode = BitmapEdgeMode::Extend, .generateTransformations = false});
     wfcImageDM->addInput({.name = {"Spiral", "渦巻き"}, .filename = "Spiral.png", .edgeMode = BitmapEdgeMode::None, .generateTransformations = true});
@@ -619,8 +628,8 @@ int main(int, char**)
         wfcImageDM->drawUIs();
 
         // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
-        if(show_demo_window)
-            ImGui::ShowDemoWindow(&show_demo_window);
+        // if(show_demo_window)
+        //     ImGui::ShowDemoWindow(&show_demo_window);
 
         // Rendering
         ImGui::Render();
@@ -679,7 +688,7 @@ void mouseButtonCallback(GLFWwindow * window, int button, int action, int mods)
             mouseState.leftClickStart = currentFrame;
         if(button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE)
         {
-            onLeftClick(globalCamera->screenToWorld(mouseState.currPos));
+            // onLeftClick(globalCamera->screenToWorld(mouseState.currPos));
             mouseState.leftClickStart = 0.0;
         }
         if(button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS)

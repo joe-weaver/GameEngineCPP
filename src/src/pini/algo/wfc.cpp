@@ -530,8 +530,43 @@ bool WFC_Image::step()
     {
         // We're done, everything is already collapsed or impossible
         this->finished = true;
-        std::cout << "Finished! " << std::endl;
-        return false;
+        std::cout << "Finished!" << std::endl;
+
+        // Do some error correction
+        for(int i = 0; i < this->N2; i++)
+        {
+            if(this->output[i].impossible)
+            {
+                int x = i % this->N;
+                int y = i / this->N;
+
+                if(this->errorCorrectionMode == 1)
+                {
+                    this->outputImage->setPixel(x, y, ColorRGBA(255, 0, 0, 255));
+                    continue;
+                }
+
+                int dir = this->rand.range(0, 3);
+                for(int j = 0; j < 4; j++)
+                {
+                    int idx = (j + dir) % 4;
+                    int ox = x + offsets[idx].x;
+                    int oy = y + offsets[idx].y;
+
+                    if(this->outputImage->getPixel(ox, oy).a == 255)
+                    {
+                        std::cout << "Setting (" << x << ", " << y <<  ") -> (" << ox << ", " << oy << ")" << std::endl; 
+                        this->outputImage->setPixel(x, y, this->outputImage->getPixel(ox, oy));
+                        break;
+                    }
+                }
+            }
+        }
+
+        std::cout << this->output[22 * this->N + 1].impossible << std::endl;
+        std::cout << this->outputImage->getPixel(1, 22) << std::endl;
+
+        return true;
     }
 
     // Get our x and y
@@ -560,6 +595,9 @@ bool WFC_Image::step()
 
         return false;
     }
+
+    this->currX = x;
+    this->currY = y;
 
     // While we have changes to propagate, loop
     this->numCollapsedThisStep = 1;
@@ -616,6 +654,10 @@ void WFC_Image::propagate(int x, int y)
     {
         int ox = x + offsets[oi].x;
         int oy = y + offsets[oi].y;
+
+        double dist = sqrt((ox - this->currX)*(ox - this->currX) + (oy - this->currY)*(oy - this->currY));
+        if(dist > maxDistance)
+            continue;
 
         // Ignore out of bounds pixels
         if(this->wrapOutput)

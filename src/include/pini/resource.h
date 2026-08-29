@@ -1,5 +1,24 @@
 #pragma once
+#include <fstream>
+#include <iostream>
+#include <sstream>
 #include <string>
+
+#include "resource_manifest.h"
+
+class ResourceManager
+{
+private:
+    static inline const EmbeddedResource * findResource(const std::string & filepath);
+
+public:
+    static std::string loadTextFile(const std::string & filepath);
+
+    static const unsigned char * loadDataFile(const std::string & filepath, int * size);
+
+    static unsigned char * loadImage(const std::string & filepath, int * width, int * height, int * numChannels);
+    static void unloadImage(unsigned char * data);
+};
 
 class Resource
 {
@@ -10,7 +29,7 @@ protected:
 
     Resource(std::string filepath)
     {
-        this->filepath = std::string(RESOURCE_DIR) + std::string("/") + filepath;
+        this->filepath = filepath;
     }
 
     ~Resource()

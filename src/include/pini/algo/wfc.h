@@ -174,6 +174,15 @@ private:
     int numCollapsedThisStep = 0;
     int numPropThisStep = 0;
 
+    // A max wave propagation heuristic. This SHOULDN'T product errors, but it still might
+    int currX = 0;
+    int currY = 0;
+    double maxDistance = 999999;
+
+    // Error correction mode
+    int errorCorrectionMode = 0;    // 0: fill with neighbors, 1: fill with color
+    ColorRGBA errorFillColor = ColorRGBA(255, 0, 0, 255);
+
 public:
     double avgCollapsedPerStep = 0;
     double avgPropPerStep = 0;
@@ -184,6 +193,8 @@ public:
     ~WFC_Image();
 
     void resizeOutput(int N);
+
+    void setMaxDistanceHeuristic(int d) { this->maxDistance = d; }
 
     void clear(int reseed = 0);
 

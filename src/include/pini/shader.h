@@ -4,10 +4,7 @@
 #include <glm/glm.hpp>
 #include <glm/ext.hpp>
 
-#include <fstream>
-#include <iostream>
-#include <sstream>
-#include <string>
+#include "resource.h"
 
 using namespace glm;
 
@@ -23,39 +20,11 @@ public:
     // Read shader from file
     void fromFile(const char * vertShaderPath, const char * fragShaderPath)
     {
-        // 1) Read vertex and frag shaders in from file
-        std::string vertShaderCode;
-        std::string fragShaderCode;
-
-        if (std::ifstream fin {vertShaderPath, std::ifstream::in}){
-            std::ostringstream sout;
-            sout << fin.rdbuf();
-            vertShaderCode = sout.str();
-        } else {
-            std::cout << std::unitbuf
-                      << "[ERROR] " << __FILE__ << ':' << __LINE__ << ' ' << __PRETTY_FUNCTION__
-                      << "\n[ERROR] " << "Vertex shader file not successfully read!"
-                      << std::nounitbuf << std::endl;
-
-            std::abort();
-        }
-
-        if (std::ifstream fin {fragShaderPath, std::ifstream::in}) {
-            std::ostringstream sout;
-            sout << fin.rdbuf();
-            fragShaderCode = sout.str();
-        } else {
-            std::cout << std::unitbuf
-                      << "[ERROR] " << __FILE__ << ':' << __LINE__ << ' ' << __PRETTY_FUNCTION__
-                      << "\n[ERROR] " << "Fragment shader file not successfully read!"
-                      << std::nounitbuf << std::endl;
-
-            std::abort();
-        }
+        std::string vertShaderCode = ResourceManager::loadTextFile(vertShaderPath);
+        std::string fragShaderCode = ResourceManager::loadTextFile(fragShaderPath);
 
         const char *vertShaderPtr = vertShaderCode.data();
         const char *fragShaderPtr = fragShaderCode.data();
-
 
         // 2) Compile shaders
         fromCode(vertShaderPtr, fragShaderPtr);
@@ -176,7 +145,7 @@ private:
                 glGetShaderInfoLog(shader, 1024, nullptr, infoLog);
 
                 std::cout << std::unitbuf
-                          << "[ERROR] " << __FILE__ << ':' << __LINE__ << ' ' << __PRETTY_FUNCTION__
+                          << "[ERROR] " << __FILE__ << ':' << __LINE__ << ' '
                           << "\n[ERROR] " << type << " shader compilation failed"
                           << "\n[ERROR] " << infoLog
                           << std::nounitbuf << std::endl;
@@ -193,7 +162,7 @@ private:
                 glGetProgramInfoLog(shader, 1024, nullptr, infoLog);
 
                 std::cout << std::unitbuf
-                          << "[ERROR] " << __FILE__ << ':' << __LINE__ << ' ' << __PRETTY_FUNCTION__
+                          << "[ERROR] " << __FILE__ << ':' << __LINE__ << ' '
                           << "\n[ERROR] " << R"(Shader program linking failed)"
                           << "\n[ERROR] " << infoLog
                           << std::nounitbuf << std::endl;

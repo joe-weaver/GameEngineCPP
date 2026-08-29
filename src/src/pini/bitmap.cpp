@@ -1,7 +1,6 @@
 #include "bitmap.h"
 
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb/stb_image.h"
+
 
 Bitmap * Bitmap::DEFAULT_BITMAP = nullptr;
 
@@ -28,14 +27,13 @@ Bitmap::Bitmap(int width, int height, BitmapEdgeMode edgeMode) : Resource(""), w
 
 void Bitmap::load()
 {
-    this->data = stbi_load(this->filepath.c_str(), &this->width, &this->height, &this->numChannels, 4);
-
     // TODO: Could handle a different number of channels but ignore for now
+    this->data = ResourceManager::loadImage(this->filepath.c_str(), &this->width, &this->height, &this->numChannels);
     this->numChannels = 4;
 
     if(!this->data)
     {
-        std::cerr << "Error loading image file!" << std::endl;
+        std::cerr << "Error loading image file: " << this->filepath << std::endl;
     }
 
     Resource::finishLoad(this->data != nullptr);
@@ -43,7 +41,7 @@ void Bitmap::load()
 
 void Bitmap::unload()
 {
-    stbi_image_free(this->data);
+    ResourceManager::unloadImage(this->data);
     Resource::finishUnload();
 }
 
